@@ -6,83 +6,182 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"netcrawler/internal/result"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"netcrawler/internal/envconfig"
+	"netcrawler/internal/result"
 )
 
 func main() {
-	in := flag.String("input", "./results", "JSON result file or directory")
-	out := flag.String("output", "./export", "Export directory")
+	if err := envconfig.Load(".env"); err != nil {
+		log.Fatalf("load .env: %v", err)
+	}
+	input := flag.String("input", envconfig.Get("RESULTS", "./results"), "JSON result file or directory")
+	output := flag.String("output", envconfig.Get("EXPORT", "./export"), "Markdown output file or directory")
 	flag.Parse()
-	fs, e := files(*in)
-	if e != nil {
-		log.Fatal(e)
+	if err := export(*input, *output); err != nil {
+		log.Fatal(err)
 	}
-	os.MkdirAll(*out, 0755)
-	var all []result.NetworkResult
-	for _, f := range fs {
-		b, e := os.ReadFile(f)
-		if e != nil {
-			log.Fatal(e)
-		}
-		var s result.NetworkResult
-		if e = json.Unmarshal(b, &s); e != nil {
-			log.Fatal(e)
-		}
-		all = append(all, s)
-		if e = os.WriteFile(filepath.Join(*out, name(s.Network)+".md"), []byte(render([]result.NetworkResult{s})), 0644); e != nil {
-			log.Fatal(e)
-		}
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Network < all[j].Network })
-	if e = os.WriteFile(filepath.Join(*out, "all.md"), []byte(render(all)), 0644); e != nil {
-		log.Fatal(e)
-	}
-	fmt.Printf("[INFO] Exported %d network(s) to %s\n", len(all), *out)
 }
-func render(ss []result.NetworkResult) string {
+
+func export(input, output string) error {
+	files, inputIsDir, err := resultFiles(input)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no JSON result files found in %s", input)
+	}
+
+	var scans []result.NetworkResult
+	for _, filename := range files {
+		scan, err := read(filename)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", filename, err)
+		}
+		scans = append(scans, scan)
+	}
+	sort.Slice(scans, func(i, j int) bool { return scans[i].Network < scans[j].Network })
+
+	if inputIsDir {
+		if err := ensureDirectoryOutput(output); err != nil {
+			return err
+		}
+		for _, scan := range scans {
+			filename := filepath.Join(output, networkName(scan.Network)+".md")
+			if err := os.WriteFile(filename, []byte(render([]result.NetworkResult{scan})), 0644); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(filepath.Join(output, "all.md"), []byte(render(scans)), 0644); err != nil {
+			return err
+		}
+		fmt.Printf("[INFO] Exported %d network(s) from %d JSON file(s) to %s\n", len(scans), len(files), output)
+		return nil
+	}
+
+	target, err := singleFileOutput(output, networkName(scans[0].Network)+".md", ".md")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(target, []byte(render(scans)), 0644); err != nil {
+		return err
+	}
+	fmt.Printf("[INFO] Exported 1 network to %s\n", target)
+	return nil
+}
+
+func resultFiles(input string) ([]string, bool, error) {
+	info, err := os.Stat(input)
+	if err != nil {
+		return nil, false, fmt.Errorf("input %q: %w", input, err)
+	}
+	if !info.IsDir() {
+		if strings.ToLower(filepath.Ext(input)) != ".json" {
+			return nil, false, fmt.Errorf("input file must have .json extension: %s", input)
+		}
+		return []string{input}, false, nil
+	}
+	var files []string
+	err = filepath.WalkDir(input, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.ToLower(filepath.Ext(path)) == ".json" {
+			files = append(files, path)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files, true, err
+}
+
+func ensureDirectoryOutput(output string) error {
+	if info, err := os.Stat(output); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("output must be a directory when input is a directory: %s", output)
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if filepath.Ext(output) != "" {
+		return fmt.Errorf("output looks like a file, but directory input requires an output directory: %s", output)
+	}
+	return os.MkdirAll(output, 0755)
+}
+
+func singleFileOutput(output, defaultName, extension string) (string, error) {
+	if info, err := os.Stat(output); err == nil {
+		if info.IsDir() {
+			return filepath.Join(output, defaultName), nil
+		}
+		if strings.ToLower(filepath.Ext(output)) != extension {
+			return "", fmt.Errorf("output file must have %s extension: %s", extension, output)
+		}
+		return output, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if strings.ToLower(filepath.Ext(output)) == extension {
+		if dir := filepath.Dir(output); dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return "", err
+			}
+		}
+		return output, nil
+	}
+	if filepath.Ext(output) != "" {
+		return "", fmt.Errorf("output file must have %s extension: %s", extension, output)
+	}
+	if err := os.MkdirAll(output, 0755); err != nil {
+		return "", err
+	}
+	return filepath.Join(output, defaultName), nil
+}
+
+func read(filename string) (result.NetworkResult, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return result.NetworkResult{}, err
+	}
+	var scan result.NetworkResult
+	if err := json.Unmarshal(data, &scan); err != nil {
+		return result.NetworkResult{}, err
+	}
+	return scan, nil
+}
+
+func render(scans []result.NetworkResult) string {
 	var b strings.Builder
 	b.WriteString("# Net Crawler Scan Report\n\n")
-	for _, s := range ss {
-		fmt.Fprintf(&b, "## %s\n\n- Scanned: %d\n- Denied: %d\n- Responsive: %d\n- Open ports: %d\n\n| IP | Hostname | Ports |\n|---|---|---|\n", s.Network, s.Statistics.Scanned, s.Statistics.Denied, s.Statistics.Responsive, s.Statistics.OpenPorts)
+	for _, scan := range scans {
+		fmt.Fprintf(&b, "## %s\n\n- Scanned: %d\n- Denied: %d\n- Responsive: %d\n- Open ports: %d\n\n",
+			scan.Network, scan.Statistics.Scanned, scan.Statistics.Denied, scan.Statistics.Responsive, scan.Statistics.OpenPorts)
+		b.WriteString("| IP | Hostname | Ports |\n|---|---|---|\n")
 		var ips []string
-		for ip := range s.Hosts {
+		for ip := range scan.Hosts {
 			ips = append(ips, ip)
 		}
 		sort.Strings(ips)
 		for _, ip := range ips {
-			h := s.Hosts[ip]
-			sort.Ints(h.Ports)
-			var ps []string
-			for _, p := range h.Ports {
-				ps = append(ps, strconv.Itoa(p))
+			host := scan.Hosts[ip]
+			ports := append([]int(nil), host.Ports...)
+			sort.Ints(ports)
+			var values []string
+			for _, port := range ports {
+				values = append(values, strconv.Itoa(port))
 			}
-			fmt.Fprintf(&b, "| %s | %s | %s |\n", ip, h.Hostname, strings.Join(ps, ", "))
+			fmt.Fprintf(&b, "| %s | %s | %s |\n", escape(ip), escape(host.Hostname), escape(strings.Join(values, ", ")))
 		}
 		b.WriteString("\n")
 	}
 	return b.String()
 }
-func files(in string) ([]string, error) {
-	i, e := os.Stat(in)
-	if e != nil {
-		return nil, e
-	}
-	if !i.IsDir() {
-		return []string{in}, nil
-	}
-	var a []string
-	e = filepath.WalkDir(in, func(p string, d fs.DirEntry, e error) error {
-		if e == nil && !d.IsDir() && strings.ToLower(filepath.Ext(p)) == ".json" {
-			a = append(a, p)
-		}
-		return e
-	})
-	sort.Strings(a)
-	return a, e
-}
-func name(n string) string { return strings.ReplaceAll(n, "/", "_") }
+
+func networkName(network string) string { return strings.ReplaceAll(network, "/", "_") }
+func escape(value string) string        { return strings.ReplaceAll(value, "|", `\|`) }

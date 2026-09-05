@@ -290,3 +290,28 @@ Nur in Netzen einsetzen, für die eine ausdrückliche Berechtigung zum Scannen b
 ## Technische Dokumentation
 
 Die Architektur und der Datenfluss sind ausführlicher in `docs/ARCHITECTURE.md` beschrieben.
+
+## Parameter-Priorität und Datei-/Verzeichnisprüfung
+
+Alle drei Programme laden `.env` selbst. Die Priorität ist:
+
+```text
+CLI-Parameter > Environment/.env > eingebauter Standard
+```
+
+Für `result2csv` und `result2md` gilt:
+
+- Ist `--input` ein Verzeichnis, werden alle `.json`-Dateien darin verarbeitet. `--output` muss dann ein Verzeichnis sein bzw. wird als Verzeichnis angelegt.
+- Ist `--input` eine einzelne `.json`-Datei, darf `--output` entweder ein Zielverzeichnis oder eine einzelne Datei mit passender Endung (`.csv` bzw. `.md`) sein.
+- Existierende Pfade werden auf Datei/Verzeichnis geprüft.
+- Falsche Dateiendungen oder widersprüchliche Kombinationen führen zu einer verständlichen Fehlermeldung.
+- Bei Verzeichnis-Input entstehen immer `all.csv`/`all.md` und zusätzlich Dateien pro `/24`.
+
+Beispiele:
+
+```bash
+./result2md
+./result2md --input ./results --output ./export
+./result2md --input ./results/192.168.0.0_24.json --output ./export
+./result2md --input ./results/192.168.0.0_24.json --output ./report.md
+```

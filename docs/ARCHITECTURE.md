@@ -217,3 +217,9 @@ Diese Funktionen können später auf Basis des JSON-Datenmodells ergänzt werden
 ## Sicherheit
 
 NetCrawl ist für eigene oder ausdrücklich zum Scan freigegebene Netzwerke vorgesehen. Denylist und konfigurierbare Targets sollen helfen, den Scanbereich eindeutig einzugrenzen.
+
+## Pfadauflösung und Validierung
+
+Die CLI-Programme laden `.env` eigenständig. Explizite CLI-Parameter überschreiben Environment-Werte; Environment-Werte überschreiben die eingebauten Defaults.
+
+Exporter unterscheiden zwischen Datei- und Verzeichnis-Input. Verzeichnis-Input verarbeitet alle `.json`-Ergebnisdateien und verlangt ein Ausgabe-Verzeichnis. Einzeldatei-Input erlaubt entweder ein Ausgabe-Verzeichnis oder eine explizite Zieldatei mit passender Endung. Dadurch werden Datei-/Verzeichnis-Verwechslungen früh erkannt.

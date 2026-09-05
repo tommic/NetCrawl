@@ -13,13 +13,17 @@ import (
 
 	"netcrawler/internal/config"
 	"netcrawler/internal/denylist"
+	"netcrawler/internal/envconfig"
 	"netcrawler/internal/iprange"
 	"netcrawler/internal/result"
 	"netcrawler/internal/scanner/tcp"
 )
 
 func main() {
-	configFile := flag.String("config", "config.json", "Path to crawler configuration")
+	if err := envconfig.Load(".env"); err != nil {
+		log.Fatalf("load .env: %v", err)
+	}
+	configFile := flag.String("config", envconfig.Get("CONFIG", "config.json"), "Path to crawler configuration")
 	flag.Parse()
 
 	fmt.Printf("[INFO] Loading config: %s\n", *configFile)
