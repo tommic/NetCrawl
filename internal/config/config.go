@@ -11,6 +11,7 @@ type Config struct {
 	Targets     Targets     `json:"targets"`
 	Ports       Ports       `json:"ports"`
 	Hostname    Hostname    `json:"hostname"`
+	Enrichment  Enrichment  `json:"enrichment"`
 	Performance Performance `json:"performance"`
 	Output      Output      `json:"output"`
 }
@@ -31,6 +32,15 @@ type Hostname struct {
 	Enabled    bool `json:"enabled"`
 	ReverseDNS bool `json:"reverseDns"`
 	TimeoutMs  int  `json:"timeoutMs"`
+}
+
+// Enrichment controls optional service detail probing (TLS certificate,
+// HTTP title/Server header, plain-text protocol banners) for open ports
+// that support it. Disabled by default: it opens extra connections per
+// open port on top of the port scan itself.
+type Enrichment struct {
+	Enabled   bool `json:"enabled"`
+	TimeoutMs int  `json:"timeoutMs"`
 }
 
 type Performance struct {
@@ -65,6 +75,9 @@ func Load(filename string) (*Config, error) {
 	}
 	if cfg.Hostname.TimeoutMs < 1 {
 		cfg.Hostname.TimeoutMs = 1000
+	}
+	if cfg.Enrichment.TimeoutMs < 1 {
+		cfg.Enrichment.TimeoutMs = 1000
 	}
 	if cfg.Output.Directory == "" {
 		cfg.Output.Directory = "./results"

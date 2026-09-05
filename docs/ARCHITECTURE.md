@@ -98,6 +98,18 @@ Konfigurierbar sind insbesondere Port-Preset, zusätzliche Ports, Timeout und ma
 
 Für Hosts mit gefundenen offenen Ports kann ein PTR-/Reverse-DNS-Lookup durchgeführt werden. Ein fehlender PTR-Eintrag ist kein Scanfehler.
 
+## Service-Erkennung (Enrichment)
+
+Über `enrichment.enabled` kann `netcrawler` für bestimmte offene Ports zusätzlich versuchen, das dahinterliegende Programm grob zu identifizieren, ohne eine vollständige Protokoll-/Versionserkennung durchzuführen:
+
+- **TLS-Zertifikat** bei Port `443`/`8443`: Subject-CN, Issuer-CN und Ablaufdatum. `InsecureSkipVerify` ist hier bewusst gesetzt – es wird nur ausgelesen, welches Zertifikat der Host präsentiert, nichts wird auf Basis der Gültigkeit vertraut oder übertragen.
+- **HTTP-Titel/Server-Header** bei Port `80`/`8000`/`8080`/`8081`/`8888`: einfacher `GET /`, ausgewertet werden `<title>` und der `Server`-Header.
+- **Banner** bei Port `21`/`22`/`25`/`110`/`143`: die ersten Bytes, die der Dienst direkt nach dem Verbindungsaufbau selbst schickt (z. B. der SSH-Versionsstring).
+
+Jeder Check läuft unabhängig, mit eigenem Timeout (`enrichment.timeoutMs`) und eigener Verbindung zusätzlich zum Port-Scan selbst. Ein nicht antwortender oder nicht erkannter Dienst führt zu keinem Fehler – der Port bleibt dann einfach ohne `details`-Eintrag.
+
+Implementiert in `internal/scanner/probe`.
+
 ## JSON-Ergebnis
 
 Beispiel:
@@ -109,7 +121,15 @@ Beispiel:
   "hosts": {
     "192.168.1.20": {
       "hostname": "server.local",
-      "ports": [22, 80, 443]
+      "ports": [22, 80, 443],
+      "details": {
+        "22": { "banner": "SSH-2.0-OpenSSH_9.6" },
+        "443": {
+          "tlsSubject": "router.local",
+          "tlsIssuer": "MyRouter CA",
+          "tlsNotAfter": "2027-01-01"
+        }
+      }
     }
   },
   "statistics": {
@@ -120,6 +140,8 @@ Beispiel:
   }
 }
 ```
+
+`details` ist optional und pro Port nur vorhanden, wenn `enrichment.enabled` gesetzt ist und der jeweilige Port zu den oben genannten Kategorien gehört und geantwortet hat.
 
 Nur Hosts mit gefundenen offenen Ports erscheinen im aktuellen MVP als responsive Hosts.
 
@@ -133,7 +155,7 @@ Nur Hosts mit gefundenen offenen Ports erscheinen im aktuellen MVP als responsiv
 
 Aus einem Ergebnisverzeichnis entstehen `all.csv` sowie einzelne Dateien pro `/24`.
 
-Ein Host entspricht genau einer CSV-Zeile. Ports werden gemeinsam im Feld `ports` gespeichert.
+Ein Host entspricht genau einer CSV-Zeile. Ports werden gemeinsam im Feld `ports` gespeichert. Vorhandene Service-Erkennungsdaten (siehe oben) landen im Feld `details`, pro Port ein durch `; ` getrennter Eintrag, z. B. `443: cn=router.local issuer=MyRouter CA expires=2027-01-01`.
 
 Zeilen werden zunächst nach Netzwerk und dann nach IP-Adresse sortiert – numerisch, nicht als Text. `192.168.0.3` steht damit vor `192.168.0.102`, und `192.168.2.0/24` vor `192.168.10.0/24`.
 
@@ -147,7 +169,7 @@ Zeilen werden zunächst nach Netzwerk und dann nach IP-Adresse sortiert – nume
 
 Es entstehen `all.md` und einzelne Reports pro `/24`.
 
-Wie beim CSV-Export werden Netzwerke und IP-Adressen numerisch sortiert, nicht als Text.
+Wie beim CSV-Export werden Netzwerke und IP-Adressen numerisch sortiert, nicht als Text. Die Tabelle bekommt eine vierte Spalte `Details` mit denselben Service-Erkennungsdaten, ein Eintrag pro Port und Zeile (per `<br>` getrennt).
 
 ## Workflow Script
 
@@ -195,7 +217,8 @@ NetCrawl/
 │   ├── iprange/
 │   ├── result/
 │   └── scanner/
-│       └── tcp/
+│       ├── tcp/
+│       └── probe/
 ├── docs/
 │   └── ARCHITECTURE.md
 ├── results/       # generiert, nicht versioniert
@@ -220,7 +243,7 @@ Die Vorlagen `.env.example` und `configs/example.json` werden dagegen versionier
 
 ## Aktuelle Grenzen
 
-Der MVP konzentriert sich auf IPv4 und TCP-Connect-Scanning. Noch nicht Bestandteil des aktuellen Standes sind unter anderem IPv6, UDP-Scanning, TLS-Metadaten, HTTP-Metadaten und detaillierte Service-/Versions-Erkennung.
+Der MVP konzentriert sich auf IPv4 und TCP-Connect-Scanning. TLS-Zertifikate, HTTP-Titel/Server-Header und einfache Text-Banner werden für ausgewählte Standardports optional mit erfasst (siehe „Service-Erkennung“). Noch nicht Bestandteil des aktuellen Standes sind unter anderem IPv6, UDP-Scanning und eine vollständige Service-/Versionserkennung über beliebige Ports.
 
 Diese Funktionen können später auf Basis des JSON-Datenmodells ergänzt werden.
 
