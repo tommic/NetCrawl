@@ -72,6 +72,8 @@ IPv6 ist im MVP nicht vorgesehen.
 
 Die Denylist akzeptiert dieselben IPv4-Formate wie die Include-Targets. Ein Deny-Eintrag hat Vorrang vor Include.
 
+Ist ein komplettes `/24` vollständig durch die Denylist blockiert, entsteht dafür kein Network-Job und keine Ergebnisdatei. In diesem Fall wird stattdessen eine INFO-Meldung ausgegeben (`Network X fully denied (N address(es)), skipping`), damit der Block sichtbar bleibt statt kommentarlos zu verschwinden.
+
 ## Arbeitseinheit `/24`
 
 Targets werden für die Verarbeitung und Ergebnisablage nach `/24` gruppiert.
@@ -154,6 +156,8 @@ Es entstehen `all.md` und einzelne Reports pro `/24`.
 ```
 
 `export` erzeugt CSV und Markdown ohne neuen Scan. `all` führt Scan, CSV und Markdown nacheinander aus.
+
+`./netcrawl -h` bzw. `--help` zeigt eine Kurzübersicht der Commands. Fehlt eines der benötigten Binaries (`netcrawler`, `result2csv`, `result2md`), bricht `netcrawl` mit einer klaren Fehlermeldung ab, die auf `make build` verweist, statt mit einem generischen "command not found".
 
 Environment-Werte können für einen einzelnen Lauf überschrieben werden:
 

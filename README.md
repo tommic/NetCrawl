@@ -205,6 +205,7 @@ Verfügbare Commands:
 ./netcrawl md
 ./netcrawl export
 ./netcrawl all
+./netcrawl --help
 ```
 
 Bedeutung:
@@ -215,7 +216,10 @@ csv       Nur CSV aus vorhandenen JSON-Ergebnissen erzeugen.
 md        Nur Markdown aus vorhandenen JSON-Ergebnissen erzeugen.
 export    CSV und Markdown aus vorhandenen JSON-Ergebnissen erzeugen.
 all       Scan durchführen und anschließend CSV + Markdown erzeugen.
+--help    Kurzübersicht der Commands anzeigen.
 ```
+
+Fehlt eines der benötigten Binaries (z. B. weil `make build` noch nicht ausgeführt wurde), bricht `netcrawl` mit einer klaren Fehlermeldung ab statt mit einem generischen "command not found".
 
 Die Pfade können auch temporär ohne Änderung der `.env` überschrieben werden:
 
