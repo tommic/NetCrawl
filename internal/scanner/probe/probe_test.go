@@ -112,7 +112,42 @@ func TestProbeBanner(t *testing.T) {
 		t.Fatal("expected probeBanner to succeed")
 	}
 	if info.Banner != "SSH-2.0-OpenSSH_9.6" {
-		t.Errorf("Banner = %q, want %q", info.Banner, "SSH-2.0-OpenSSH_9.6")
+		t.Errorf("banner = %q, want %q", info.Banner, "SSH-2.0-OpenSSH_9.6")
+	}
+}
+
+// TestProbeBannerDropbear reproduces a real-world case: Dropbear sends its
+// version line immediately followed by the binary KEXINIT packet, both
+// arriving in a single read. The banner must stop at the line break and
+// never include the binary bytes that follow.
+func TestProbeBannerDropbear(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			payload := append([]byte("SSH-2.0-dropbear_2024.85\r\n"),
+				[]byte{0x00, 0x00, 0x01, 0x1d, 0x0a, 0x14, 0x00, 0x01, 0x1c, 0xff, 0xfe}...)
+			c.Write(payload)
+			go func(c net.Conn) { time.Sleep(200 * time.Millisecond); c.Close() }(c)
+		}
+	}()
+
+	addr, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	info, ok := probeBanner(context.Background(), addr, port, time.Second)
+	if !ok {
+		t.Fatal("expected probeBanner to succeed")
+	}
+	if info.Banner != "SSH-2.0-dropbear_2024.85" {
+		t.Errorf("banner = %q, want %q (no trailing binary garbage)", info.Banner, "SSH-2.0-dropbear_2024.85")
 	}
 }
 

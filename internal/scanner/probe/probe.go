@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -241,6 +242,10 @@ func probeHTTP(ctx context.Context, addr string, port int, timeout time.Duration
 	return Info{HTTPTitle: title, HTTPServer: server}, true
 }
 
+// maxBannerBytes bounds how much of a greeting we ever read, so a server
+// that never sends a line terminator can't make us buffer indefinitely.
+const maxBannerBytes = 256
+
 func probeBanner(ctx context.Context, addr string, port int, timeout time.Duration) (Info, bool) {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
@@ -250,14 +255,32 @@ func probeBanner(ctx context.Context, addr string, port int, timeout time.Durati
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 
-	buf := make([]byte, 512)
-	n, _ := conn.Read(buf)
-	if n == 0 {
-		return Info{}, false
-	}
-	banner := strings.TrimSpace(strings.ReplaceAll(string(buf[:n]), "\x00", ""))
+	// Every protocol in bannerPorts sends exactly one plain-text greeting
+	// line before switching to its (often binary) protocol proper - e.g.
+	// SSH's version string is immediately followed by the binary KEXINIT
+	// packet. Some servers (Dropbear in particular) send both in a single
+	// TCP segment, so reading a fixed-size chunk can capture raw protocol
+	// bytes along with the greeting. Reading only up to the first newline
+	// avoids that.
+	reader := bufio.NewReader(io.LimitReader(conn, maxBannerBytes))
+	line, _ := reader.ReadString('\n')
+	banner := sanitizeBanner(line)
 	if banner == "" {
 		return Info{}, false
 	}
 	return Info{Banner: banner}, true
+}
+
+// sanitizeBanner trims the line terminator and drops anything that isn't a
+// printable character, in case a server's greeting is followed by (or is
+// itself) binary protocol data rather than clean text.
+func sanitizeBanner(line string) string {
+	line = strings.TrimRight(line, "\r\n")
+	var b strings.Builder
+	for _, r := range line {
+		if unicode.IsPrint(r) {
+			b.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
