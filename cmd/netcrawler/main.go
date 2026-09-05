@@ -115,12 +115,14 @@ func main() {
 				h.Details = make(map[int]result.PortInfo, len(info))
 				for port, d := range info {
 					h.Details[port] = result.PortInfo{
-						Banner:      d.Banner,
-						HTTPTitle:   d.HTTPTitle,
-						HTTPServer:  d.HTTPServer,
-						TLSSubject:  d.TLSSubject,
-						TLSIssuer:   d.TLSIssuer,
-						TLSNotAfter: d.TLSNotAfter,
+						Banner:       d.Banner,
+						HTTPTitle:    d.HTTPTitle,
+						HTTPServer:   d.HTTPServer,
+						TLSSubject:   d.TLSSubject,
+						TLSIssuer:    d.TLSIssuer,
+						TLSNotAfter:  d.TLSNotAfter,
+						SSHKeyType:   d.SSHKeyType,
+						SSHKeyFinger: d.SSHKeyFinger,
 					}
 				}
 			}

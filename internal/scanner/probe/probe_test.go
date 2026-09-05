@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -14,6 +15,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func TestProbeTLS(t *testing.T) {
@@ -23,21 +26,12 @@ func TestProbeTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			// tls.Listen only performs the server-side handshake lazily on
-			// first Read/Write, so force it before closing.
-			go func(c net.Conn) {
-				_ = c.(*tls.Conn).Handshake()
-				time.Sleep(100 * time.Millisecond)
-				c.Close()
-			}(c)
-		}
-	}()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "UniFi")
+		fmt.Fprint(w, "<html><head><title>UniFi OS</title></head><body>hi</body></html>")
+	})
+	go http.Serve(ln, mux)
 
 	addr, portStr, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portStr)
@@ -54,6 +48,14 @@ func TestProbeTLS(t *testing.T) {
 	}
 	if info.TLSNotAfter == "" {
 		t.Error("TLSNotAfter is empty")
+	}
+	// The HTTP-over-TLS fetch should also pick up title/Server, the way a
+	// real device's HTTPS admin UI would present itself.
+	if info.HTTPTitle != "UniFi OS" {
+		t.Errorf("HTTPTitle = %q, want %q", info.HTTPTitle, "UniFi OS")
+	}
+	if info.HTTPServer != "UniFi" {
+		t.Errorf("HTTPServer = %q, want %q", info.HTTPServer, "UniFi")
 	}
 }
 
@@ -111,6 +113,63 @@ func TestProbeBanner(t *testing.T) {
 	}
 	if info.Banner != "SSH-2.0-OpenSSH_9.6" {
 		t.Errorf("Banner = %q, want %q", info.Banner, "SSH-2.0-OpenSSH_9.6")
+	}
+}
+
+func TestProbeSSHHostKey(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authAttempted := false
+	serverConfig := &ssh.ServerConfig{
+		NoClientAuth: false,
+		PasswordCallback: func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+			authAttempted = true
+			return nil, fmt.Errorf("denied")
+		},
+	}
+	serverConfig.AddHostKey(signer)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go ssh.NewServerConn(c, serverConfig)
+		}
+	}()
+
+	addr, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	keyType, fingerprint, ok := probeSSHHostKey(context.Background(), addr, port, time.Second)
+	if !ok {
+		t.Fatal("expected probeSSHHostKey to succeed")
+	}
+	wantType := signer.PublicKey().Type()
+	if keyType != wantType {
+		t.Errorf("keyType = %q, want %q", keyType, wantType)
+	}
+	wantFingerprint := ssh.FingerprintSHA256(signer.PublicKey())
+	if fingerprint != wantFingerprint {
+		t.Errorf("fingerprint = %q, want %q", fingerprint, wantFingerprint)
+	}
+	// The whole point: the host key callback aborts the handshake before
+	// any authentication is attempted, so this must never log in.
+	time.Sleep(50 * time.Millisecond)
+	if authAttempted {
+		t.Error("probeSSHHostKey attempted authentication, it must not")
 	}
 }
 
