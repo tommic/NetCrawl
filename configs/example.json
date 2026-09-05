@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "targets": {
+    "include": ["192.168.1.0/24"],
+    "deny": ["192.168.1.1"]
+  },
+  "ports": {
+    "enabled": true,
+    "preset": "common",
+    "custom": [8080, 8443],
+    "timeoutMs": 400
+  },
+  "hostname": {
+    "enabled": true,
+    "reverseDns": true,
+    "timeoutMs": 1000
+  },
+  "performance": {
+    "maxConcurrentConnections": 500
+  },
+  "output": {
+    "directory": "./results",
+    "prettyPrint": true
+  }
+}
