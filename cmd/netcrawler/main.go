@@ -66,6 +66,18 @@ func main() {
 		networks = append(networks, n)
 	}
 	sort.Strings(networks)
+
+	fullyDenied := make([]string, 0)
+	for n := range denied {
+		if _, ok := jobs[n]; !ok {
+			fullyDenied = append(fullyDenied, n)
+		}
+	}
+	sort.Strings(fullyDenied)
+	for _, n := range fullyDenied {
+		fmt.Printf("[INFO] Network %s fully denied (%d address(es)), skipping\n", n, denied[n])
+	}
+
 	ports := tcp.Ports(cfg.Ports.Preset, cfg.Ports.Custom)
 	fmt.Printf("[INFO] Generated %d network job(s), %d port(s)\n", len(networks), len(ports))
 
