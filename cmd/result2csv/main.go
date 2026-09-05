@@ -188,9 +188,9 @@ func read(filename string) (result.NetworkResult, []row, error) {
 func sortRows(rows []row) {
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Network != rows[j].Network {
-			return rows[i].Network < rows[j].Network
+			return result.CompareNetworks(rows[i].Network, rows[j].Network) < 0
 		}
-		return rows[i].IP < rows[j].IP
+		return result.CompareIPs(rows[i].IP, rows[j].IP) < 0
 	})
 }
 

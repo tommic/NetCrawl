@@ -92,6 +92,8 @@ Der MVP verwendet einen parallelen TCP-Connect-Scan. Dadurch sind keine Raw Sock
 
 Konfigurierbar sind insbesondere Port-Preset, zusätzliche Ports, Timeout und maximale Parallelität.
 
+Über `ports.enabled` lässt sich der TCP-Scan vollständig deaktivieren (z. B. um Target-Auflösung und Denylist zu testen, ohne das Netz tatsächlich zu berühren). Ist der Wert `false`, werden keine Verbindungen aufgebaut; alle Hosts gelten als nicht responsive.
+
 ## Reverse DNS
 
 Für Hosts mit gefundenen offenen Ports kann ein PTR-/Reverse-DNS-Lookup durchgeführt werden. Ein fehlender PTR-Eintrag ist kein Scanfehler.
@@ -133,6 +135,8 @@ Aus einem Ergebnisverzeichnis entstehen `all.csv` sowie einzelne Dateien pro `/2
 
 Ein Host entspricht genau einer CSV-Zeile. Ports werden gemeinsam im Feld `ports` gespeichert.
 
+Zeilen werden zunächst nach Netzwerk und dann nach IP-Adresse sortiert – numerisch, nicht als Text. `192.168.0.3` steht damit vor `192.168.0.102`, und `192.168.2.0/24` vor `192.168.10.0/24`.
+
 ## Markdown Export
 
 `result2md` arbeitet analog:
@@ -142,6 +146,8 @@ Ein Host entspricht genau einer CSV-Zeile. Ports werden gemeinsam im Feld `ports
 ```
 
 Es entstehen `all.md` und einzelne Reports pro `/24`.
+
+Wie beim CSV-Export werden Netzwerke und IP-Adressen numerisch sortiert, nicht als Text.
 
 ## Workflow Script
 

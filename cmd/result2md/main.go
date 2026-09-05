@@ -45,7 +45,7 @@ func export(input, output string) error {
 		}
 		scans = append(scans, scan)
 	}
-	sort.Slice(scans, func(i, j int) bool { return scans[i].Network < scans[j].Network })
+	sort.Slice(scans, func(i, j int) bool { return result.CompareNetworks(scans[i].Network, scans[j].Network) < 0 })
 
 	if inputIsDir {
 		if err := ensureDirectoryOutput(output); err != nil {
@@ -167,7 +167,7 @@ func render(scans []result.NetworkResult) string {
 		for ip := range scan.Hosts {
 			ips = append(ips, ip)
 		}
-		sort.Strings(ips)
+		sort.Slice(ips, func(i, j int) bool { return result.CompareIPs(ips[i], ips[j]) < 0 })
 		for _, ip := range ips {
 			host := scan.Hosts[ip]
 			ports := append([]int(nil), host.Ports...)
