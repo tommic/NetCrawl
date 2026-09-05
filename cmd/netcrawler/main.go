@@ -47,16 +47,16 @@ func main() {
 			log.Fatalf("target %q: %v", target, err)
 		}
 		for _, a := range iprange.Addresses(r) {
-			p := netip.PrefixFrom(a, 24).Masked().String()
-			if deny.Contains(a) {
-				denied[p]++
-				continue
-			}
 			key := a.String()
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
+			p := netip.PrefixFrom(a, 24).Masked().String()
+			if deny.Contains(a) {
+				denied[p]++
+				continue
+			}
 			jobs[p] = append(jobs[p], a)
 		}
 	}
@@ -65,15 +65,21 @@ func main() {
 	for n := range jobs {
 		networks = append(networks, n)
 	}
-	sort.Strings(networks)
+	sort.Slice(networks, func(i, j int) bool { return result.CompareNetworks(networks[i], networks[j]) < 0 })
 	ports := tcp.Ports(cfg.Ports.Preset, cfg.Ports.Custom)
 	fmt.Printf("[INFO] Generated %d network job(s), %d port(s)\n", len(networks), len(ports))
+	if !cfg.Ports.Enabled {
+		fmt.Println("[INFO] Port scanning disabled via config (ports.enabled=false); no hosts will be probed")
+	}
 
 	for _, network := range networks {
 		addresses := jobs[network]
 		fmt.Printf("[INFO] Scanning %s (%d target(s))\n", network, len(addresses))
 		start := time.Now()
-		found := tcp.Scan(context.Background(), addresses, ports, time.Duration(cfg.Ports.TimeoutMs)*time.Millisecond, cfg.Performance.MaxConcurrentConnections)
+		found := map[string][]int{}
+		if cfg.Ports.Enabled {
+			found = tcp.Scan(context.Background(), addresses, ports, time.Duration(cfg.Ports.TimeoutMs)*time.Millisecond, cfg.Performance.MaxConcurrentConnections)
+		}
 
 		hosts := map[string]result.Host{}
 		openCount := 0

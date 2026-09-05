@@ -3,6 +3,7 @@ package result
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,33 @@ type Statistics struct {
 	Denied     int `json:"denied"`
 	Responsive int `json:"responsive"`
 	OpenPorts  int `json:"openPorts"`
+}
+
+// CompareIPs orders two IP address strings numerically instead of
+// lexicographically, so 192.168.0.3 sorts before 192.168.0.102.
+// Values that fail to parse fall back to a plain string comparison.
+func CompareIPs(a, b string) int {
+	addrA, errA := netip.ParseAddr(a)
+	addrB, errB := netip.ParseAddr(b)
+	if errA == nil && errB == nil {
+		return addrA.Compare(addrB)
+	}
+	return strings.Compare(a, b)
+}
+
+// CompareNetworks orders two CIDR strings by address and then prefix
+// length, so "192.168.2.0/24" sorts before "192.168.10.0/24". Values
+// that fail to parse fall back to a plain string comparison.
+func CompareNetworks(a, b string) int {
+	prefixA, errA := netip.ParsePrefix(a)
+	prefixB, errB := netip.ParsePrefix(b)
+	if errA == nil && errB == nil {
+		if c := prefixA.Addr().Compare(prefixB.Addr()); c != 0 {
+			return c
+		}
+		return prefixA.Bits() - prefixB.Bits()
+	}
+	return strings.Compare(a, b)
 }
 
 func Write(dir string, r NetworkResult, pretty bool) error {
