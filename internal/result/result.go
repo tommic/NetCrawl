@@ -15,12 +15,14 @@ import (
 // protocol greeting banner. Fields are populated depending on which of
 // these applies to the port; unrecognized ports have no PortInfo entry.
 type PortInfo struct {
-	Banner      string `json:"banner,omitempty"`
-	HTTPTitle   string `json:"httpTitle,omitempty"`
-	HTTPServer  string `json:"httpServer,omitempty"`
-	TLSSubject  string `json:"tlsSubject,omitempty"`
-	TLSIssuer   string `json:"tlsIssuer,omitempty"`
-	TLSNotAfter string `json:"tlsNotAfter,omitempty"`
+	Banner       string `json:"banner,omitempty"`
+	HTTPTitle    string `json:"httpTitle,omitempty"`
+	HTTPServer   string `json:"httpServer,omitempty"`
+	TLSSubject   string `json:"tlsSubject,omitempty"`
+	TLSIssuer    string `json:"tlsIssuer,omitempty"`
+	TLSNotAfter  string `json:"tlsNotAfter,omitempty"`
+	SSHKeyType   string `json:"sshKeyType,omitempty"`
+	SSHKeyFinger string `json:"sshKeyFingerprint,omitempty"`
 }
 
 type Host struct {
@@ -50,6 +52,12 @@ func FormatPortInfo(port int, info PortInfo) string {
 	}
 	if info.TLSNotAfter != "" {
 		parts = append(parts, "expires="+info.TLSNotAfter)
+	}
+	if info.SSHKeyType != "" {
+		parts = append(parts, "sshKey="+info.SSHKeyType)
+	}
+	if info.SSHKeyFinger != "" {
+		parts = append(parts, "sshFingerprint="+info.SSHKeyFinger)
 	}
 	if len(parts) == 0 {
 		return fmt.Sprintf("%d", port)

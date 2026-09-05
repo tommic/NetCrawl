@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -16,16 +17,20 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // Info holds the service details gathered for a single open port.
 type Info struct {
-	Banner      string
-	HTTPTitle   string
-	HTTPServer  string
-	TLSSubject  string
-	TLSIssuer   string
-	TLSNotAfter string
+	Banner       string
+	HTTPTitle    string
+	HTTPServer   string
+	TLSSubject   string
+	TLSIssuer    string
+	TLSNotAfter  string
+	SSHKeyType   string
+	SSHKeyFinger string
 }
 
 var (
@@ -105,10 +110,56 @@ func probeOne(ctx context.Context, addr string, port int, timeout time.Duration)
 		return probeTLS(ctx, addr, port, timeout)
 	case httpPorts[port]:
 		return probeHTTP(ctx, addr, port, timeout)
+	case port == 22:
+		// SSH gets both the raw greeting banner and the negotiated host
+		// key, which need separate connections (the ssh package does its
+		// own version exchange and would choke on a banner already read
+		// off the same conn).
+		info, bannerOK := probeBanner(ctx, addr, port, timeout)
+		keyType, fingerprint, keyOK := probeSSHHostKey(ctx, addr, port, timeout)
+		if !bannerOK && !keyOK {
+			return Info{}, false
+		}
+		info.SSHKeyType = keyType
+		info.SSHKeyFinger = fingerprint
+		return info, true
 	case bannerPorts[port]:
 		return probeBanner(ctx, addr, port, timeout)
 	}
 	return Info{}, false
+}
+
+// errHostKeyCaptured aborts the SSH handshake right after the host key is
+// seen, before any authentication is attempted.
+var errHostKeyCaptured = errors.New("probe: host key captured")
+
+// probeSSHHostKey negotiates just far enough into the SSH protocol to learn
+// the server's host key, then aborts - no username, password, or key is
+// ever sent, so this never attempts to log in.
+func probeSSHHostKey(ctx context.Context, addr string, port int, timeout time.Duration) (keyType, fingerprint string, ok bool) {
+	d := net.Dialer{Timeout: timeout}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
+	if err != nil {
+		return "", "", false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+
+	var hostKey ssh.PublicKey
+	config := &ssh.ClientConfig{
+		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			hostKey = key
+			return errHostKeyCaptured
+		},
+		Timeout: timeout,
+	}
+	// Always returns an error (either errHostKeyCaptured, or a transport
+	// failure before the host key was even seen); only the former counts.
+	_, _, _, _ = ssh.NewClientConn(conn, addr, config)
+	if hostKey == nil {
+		return "", "", false
+	}
+	return hostKey.Type(), ssh.FingerprintSHA256(hostKey), true
 }
 
 func probeTLS(ctx context.Context, addr string, port int, timeout time.Duration) (Info, bool) {
@@ -128,19 +179,51 @@ func probeTLS(ctx context.Context, addr string, port int, timeout time.Duration)
 	if err := conn.HandshakeContext(ctx); err != nil {
 		return Info{}, false
 	}
-	certs := conn.ConnectionState().PeerCertificates
-	if len(certs) == 0 {
+	var info Info
+	if certs := conn.ConnectionState().PeerCertificates; len(certs) > 0 {
+		cert := certs[0]
+		info.TLSSubject = cert.Subject.CommonName
+		info.TLSIssuer = cert.Issuer.CommonName
+		info.TLSNotAfter = cert.NotAfter.Format("2006-01-02")
+	}
+
+	// Most services on 443/8443 are HTTPS, so also fetch title/Server over
+	// the now-established TLS connection - that's usually the strongest
+	// signal for what's actually behind the port (e.g. an admin UI's name).
+	_ = raw.SetDeadline(time.Now().Add(timeout))
+	info.HTTPTitle, info.HTTPServer = fetchHTTPInfo(conn, addr)
+
+	if info == (Info{}) {
 		return Info{}, false
 	}
-	cert := certs[0]
-	return Info{
-		TLSSubject:  cert.Subject.CommonName,
-		TLSIssuer:   cert.Issuer.CommonName,
-		TLSNotAfter: cert.NotAfter.Format("2006-01-02"),
-	}, true
+	return info, true
 }
 
 var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+// fetchHTTPInfo sends a plain GET / over conn (already connected, plaintext
+// or TLS) and returns the page title and Server header, whichever it can
+// find. Either return value may be empty; that's not treated as an error by
+// callers.
+func fetchHTTPInfo(conn net.Conn, host string) (title, server string) {
+	req := "GET / HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: netcrawler\r\nConnection: close\r\n\r\n"
+	if _, err := conn.Write([]byte(req)); err != nil {
+		return "", ""
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+
+	server = resp.Header.Get("Server")
+	body := make([]byte, 32*1024)
+	n, _ := io.ReadFull(resp.Body, body)
+	if m := titleRe.FindSubmatch(body[:n]); m != nil {
+		title = strings.TrimSpace(strings.Join(strings.Fields(string(m[1])), " "))
+	}
+	return title, server
+}
 
 func probeHTTP(ctx context.Context, addr string, port int, timeout time.Duration) (Info, bool) {
 	d := net.Dialer{Timeout: timeout}
@@ -151,26 +234,11 @@ func probeHTTP(ctx context.Context, addr string, port int, timeout time.Duration
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
-	req := "GET / HTTP/1.1\r\nHost: " + addr + "\r\nUser-Agent: netcrawler\r\nConnection: close\r\n\r\n"
-	if _, err := conn.Write([]byte(req)); err != nil {
+	title, server := fetchHTTPInfo(conn, addr)
+	if title == "" && server == "" {
 		return Info{}, false
 	}
-	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
-	if err != nil {
-		return Info{}, false
-	}
-	defer resp.Body.Close()
-
-	info := Info{HTTPServer: resp.Header.Get("Server")}
-	body := make([]byte, 32*1024)
-	n, _ := io.ReadFull(resp.Body, body)
-	if m := titleRe.FindSubmatch(body[:n]); m != nil {
-		info.HTTPTitle = strings.TrimSpace(strings.Join(strings.Fields(string(m[1])), " "))
-	}
-	if info.HTTPServer == "" && info.HTTPTitle == "" {
-		return Info{}, false
-	}
-	return info, true
+	return Info{HTTPTitle: title, HTTPServer: server}, true
 }
 
 func probeBanner(ctx context.Context, addr string, port int, timeout time.Duration) (Info, bool) {

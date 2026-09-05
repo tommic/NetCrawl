@@ -5,7 +5,7 @@ Ein Go-basierter TCP-Connect-Scanner für eigene bzw. autorisierte Netze.
 ## Voraussetzungen
 
 - Linux empfohlen
-- Go 1.23+ zum Bauen
+- Go 1.22+ zum Bauen (offizielles Toolchain – siehe Hinweis unten)
 
 ```bash
 go version
@@ -24,6 +24,8 @@ sudo dnf install golang
 # Arch Linux
 sudo pacman -S go
 ```
+
+Auf manchen Systemen zeigt `go version` einen `gccgo`-Compiler statt des offiziellen Go-Toolchains (z. B. wenn `/usr/bin/go` zu `gccgo` zeigt). Für die SSH-Host-Key-Erkennung (Paket `crypto/ecdh`, seit Go 1.20) reicht gccgo 1.18 nicht aus – dann stattdessen ein offizielles Toolchain-Binary verwenden, z. B. `/usr/lib/go-1.22/bin/go` bzw. die PATH-Reihenfolge entsprechend anpassen.
 
 ## 1. `.env` einrichten
 
@@ -63,7 +65,7 @@ In `config.json` werden Targets, Denylist, Ports, Timeouts und weitere Scan-Eins
 
 Insbesondere `targets.include` auf das eigene bzw. autorisierte Netz anpassen.
 
-Über `enrichment.enabled` lässt sich zusätzlich eine grobe Service-Erkennung für bestimmte offene Standardports aktivieren: TLS-Zertifikat (Subject/Issuer/Ablaufdatum) bei `443`/`8443`, HTTP-Titel/Server-Header bei `80`/`8000`/`8080`/`8081`/`8888`, und Begrüßungs-Banner bei `21`/`22`/`25`/`110`/`143`. Details dazu in `docs/ARCHITECTURE.md`.
+Über `enrichment.enabled` lässt sich zusätzlich eine grobe Service-Erkennung für bestimmte offene Standardports aktivieren: TLS-Zertifikat + HTTPS-Titel/Server-Header bei `443`/`8443`, HTTP-Titel/Server-Header bei `80`/`8000`/`8080`/`8081`/`8888`, Begrüßungs-Banner bei `21`/`22`/`25`/`110`/`143`, und zusätzlich bei `22` der SSH-Host-Key-Fingerprint (wie `ssh-keyscan`, ohne jeden Login-Versuch). Details dazu in `docs/ARCHITECTURE.md`.
 
 `config.json` wird nicht committed. `configs/example.json` dient als versionierte Vorlage.
 

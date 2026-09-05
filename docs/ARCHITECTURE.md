@@ -102,13 +102,16 @@ Für Hosts mit gefundenen offenen Ports kann ein PTR-/Reverse-DNS-Lookup durchge
 
 Über `enrichment.enabled` kann `netcrawler` für bestimmte offene Ports zusätzlich versuchen, das dahinterliegende Programm grob zu identifizieren, ohne eine vollständige Protokoll-/Versionserkennung durchzuführen:
 
-- **TLS-Zertifikat** bei Port `443`/`8443`: Subject-CN, Issuer-CN und Ablaufdatum. `InsecureSkipVerify` ist hier bewusst gesetzt – es wird nur ausgelesen, welches Zertifikat der Host präsentiert, nichts wird auf Basis der Gültigkeit vertraut oder übertragen.
+- **TLS-Zertifikat** bei Port `443`/`8443`: Subject-CN, Issuer-CN und Ablaufdatum. `InsecureSkipVerify` ist hier bewusst gesetzt – es wird nur ausgelesen, welches Zertifikat der Host präsentiert, nichts wird auf Basis der Gültigkeit vertraut oder übertragen. Zusätzlich wird über dieselbe TLS-Verbindung ein `GET /` abgesetzt, um wie beim reinen HTTP-Check Titel/Server-Header zu bekommen – bei vielen Geräten (z. B. Admin-Oberflächen) ist das die aussagekräftigste Information überhaupt.
 - **HTTP-Titel/Server-Header** bei Port `80`/`8000`/`8080`/`8081`/`8888`: einfacher `GET /`, ausgewertet werden `<title>` und der `Server`-Header.
 - **Banner** bei Port `21`/`22`/`25`/`110`/`143`: die ersten Bytes, die der Dienst direkt nach dem Verbindungsaufbau selbst schickt (z. B. der SSH-Versionsstring).
+- **SSH-Host-Key** zusätzlich bei Port `22`: Typ und SHA256-Fingerprint des Host-Keys, wie ihn `ssh-keyscan` liefert. Dazu wird der SSH-Handshake nur bis zur Host-Key-Verifikation durchgeführt und danach bewusst mit einem Fehler abgebrochen – es wird nie ein Benutzername, Passwort oder Schlüssel gesendet, es findet also nie ein Login-Versuch statt. Umgesetzt mit `golang.org/x/crypto/ssh` (erste externe Abhängigkeit des Projekts).
 
 Jeder Check läuft unabhängig, mit eigenem Timeout (`enrichment.timeoutMs`) und eigener Verbindung zusätzlich zum Port-Scan selbst. Ein nicht antwortender oder nicht erkannter Dienst führt zu keinem Fehler – der Port bleibt dann einfach ohne `details`-Eintrag.
 
 Implementiert in `internal/scanner/probe`.
+
+**Hinweis zum Bauen:** Die SSH-Host-Key-Erkennung braucht die Standardbibliothekspakete `crypto/ecdh` (seit Go 1.20). Falls `go version` einen gccgo-Compiler statt des offiziellen Go-Toolchains zeigt (wie es diese Umgebung standardmäßig tut, `go` zeigt auf gccgo 1.18), damit lässt sich das Projekt nicht mehr bauen – stattdessen z. B. `/usr/lib/go-1.22/bin/go` verwenden bzw. die PATH-Reihenfolge anpassen.
 
 ## JSON-Ergebnis
 
@@ -123,7 +126,11 @@ Beispiel:
       "hostname": "server.local",
       "ports": [22, 80, 443],
       "details": {
-        "22": { "banner": "SSH-2.0-OpenSSH_9.6" },
+        "22": {
+          "banner": "SSH-2.0-OpenSSH_9.6",
+          "sshKeyType": "ecdsa-sha2-nistp256",
+          "sshKeyFingerprint": "SHA256:jgNEp8UZwyiggRAk4jnlNKcBjRC8B4iEbvF2uGO6zrM"
+        },
         "443": {
           "tlsSubject": "router.local",
           "tlsIssuer": "MyRouter CA",
