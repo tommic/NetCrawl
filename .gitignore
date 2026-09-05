@@ -1,15 +1,8 @@
-# Local crawler configurations
+/config.json
 /configs/*
 !/configs/example.json
-
-# Scan results
 /results/
-results.csv
-
-# Local binaries
+/export/
 /netcrawler
 /result2csv
-
-# Generated reports
-/results.md
 /result2md

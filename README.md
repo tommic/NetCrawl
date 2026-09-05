@@ -108,20 +108,44 @@ network,ip,hostname,port
 192.168.1.0/24,192.168.1.20,server.local,80
 ```
 
+## Standard-Workflow
 
-## Markdown-Report exportieren
+Die Beispielkonfiguration zuerst kopieren:
 
 ```bash
-go build -o result2md ./cmd/result2md
-./result2md --input ./results --output results.md
+cp configs/example.json config.json
 ```
 
-Der Exporter erzeugt pro `/24` einen Abschnitt mit Statistik und einer Host-Tabelle. Es kann auch eine einzelne Ergebnis-JSON als `--input` angegeben werden.
+`netcrawler` verwendet jetzt ohne Parameter automatisch `./config.json`.
 
-## Ausführliche Projektdokumentation
+```bash
+./netcrawler
+```
 
-Eine technische Beschreibung der Architektur, Datenflüsse, Konfiguration, Designentscheidungen, Ergebnisformate und geplanten Ausbaustufen befindet sich unter:
+Alle Exporte landen standardmäßig unter `export/`. CSV und Markdown erzeugen jeweils eine Gesamtdatei und zusätzlich eine Datei pro `/24`:
 
 ```text
-docs/ARCHITECTURE.md
+export/
+├── all.csv
+├── all.md
+├── 192.168.1.0_24.csv
+├── 192.168.1.0_24.md
+└── ...
 ```
+
+Kompletter Ablauf:
+
+```bash
+./netcrawl all
+```
+
+Einzelschritte:
+
+```bash
+./netcrawl scan
+./netcrawl csv
+./netcrawl md
+./netcrawl export
+```
+
+`export` führt CSV und Markdown ohne neuen Scan aus. Die Verzeichnisse `results/`, `export/` sowie die lokale `config.json` werden nicht committed.

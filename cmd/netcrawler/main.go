@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	configFile := flag.String("config", "configs/example.json", "Path to crawler configuration")
+	configFile := flag.String("config", "config.json", "Path to crawler configuration")
 	flag.Parse()
 
 	fmt.Printf("[INFO] Loading config: %s\n", *configFile)

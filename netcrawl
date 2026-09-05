@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+CMD="${1:-all}"
+CONFIG="${CONFIG:-config.json}"
+RESULTS="${RESULTS:-results}"
+EXPORT="${EXPORT:-export}"
+case "$CMD" in
+ scan) ./netcrawler --config "$CONFIG" ;;
+ csv) ./result2csv --input "$RESULTS" --output "$EXPORT" ;;
+ md) ./result2md --input "$RESULTS" --output "$EXPORT" ;;
+ export) ./result2csv --input "$RESULTS" --output "$EXPORT"; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
+ all) ./netcrawler --config "$CONFIG"; ./result2csv --input "$RESULTS" --output "$EXPORT"; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
+ *) echo "Usage: ./netcrawl {scan|csv|md|export|all}" >&2; exit 1 ;;
+esac
