@@ -149,3 +149,24 @@ Einzelschritte:
 ```
 
 `export` führt CSV und Markdown ohne neuen Scan aus. Die Verzeichnisse `results/`, `export/` sowie die lokale `config.json` werden nicht committed.
+
+## Lokale Environment-Konfiguration
+
+Beim ersten Setup die Vorlagen kopieren:
+
+```bash
+cp configs/example.json config.json
+cp .env.example .env
+```
+
+`.env` steuert die Standardpfade:
+
+```bash
+CONFIG=config.json
+RESULTS=results
+EXPORT=export
+```
+
+Das Script `netcrawl` lädt `.env` automatisch. Ohne `.env` gelten dieselben Standardwerte.
+
+`.env`, `config.json`, `results/` und `export/` werden nicht committed; `.env.example` und `configs/example.json` bleiben als Vorlagen im Repository.

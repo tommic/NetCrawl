@@ -1,4 +1,5 @@
 /config.json
+/.env
 /configs/*
 !/configs/example.json
 /results/
