@@ -9,11 +9,29 @@ COMMAND="${1:-all}"
 CONFIG="${CONFIG:-config.json}"
 RESULTS="${RESULTS:-results}"
 EXPORT="${EXPORT:-export}"
+
+usage() {
+  echo "Usage: $0 {scan|csv|md|export|all}" >&2
+  echo "  scan    Run the network scan only" >&2
+  echo "  csv     Generate CSV from existing JSON results only" >&2
+  echo "  md      Generate Markdown from existing JSON results only" >&2
+  echo "  export  Generate CSV and Markdown from existing JSON results" >&2
+  echo "  all     Run scan, then generate CSV and Markdown (default)" >&2
+}
+
+require_bin() {
+  if [ ! -x "$1" ]; then
+    echo "Error: $1 not found or not executable. Run 'make build' first." >&2
+    exit 1
+  fi
+}
+
 case "$COMMAND" in
- scan) ./netcrawler --config "$CONFIG" ;;
- csv) ./result2csv --input "$RESULTS" --output "$EXPORT" ;;
- md) ./result2md --input "$RESULTS" --output "$EXPORT" ;;
- export) ./result2csv --input "$RESULTS" --output "$EXPORT"; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
- all) ./netcrawler --config "$CONFIG"; ./result2csv --input "$RESULTS" --output "$EXPORT"; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
- *) echo "Usage: $0 {scan|csv|md|export|all}" >&2; exit 1 ;;
+ -h|--help|help) usage; exit 0 ;;
+ scan) require_bin ./netcrawler; ./netcrawler --config "$CONFIG" ;;
+ csv) require_bin ./result2csv; ./result2csv --input "$RESULTS" --output "$EXPORT" ;;
+ md) require_bin ./result2md; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
+ export) require_bin ./result2csv; require_bin ./result2md; ./result2csv --input "$RESULTS" --output "$EXPORT"; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
+ all) require_bin ./netcrawler; require_bin ./result2csv; require_bin ./result2md; ./netcrawler --config "$CONFIG"; ./result2csv --input "$RESULTS" --output "$EXPORT"; ./result2md --input "$RESULTS" --output "$EXPORT" ;;
+ *) usage; exit 1 ;;
 esac
