@@ -70,7 +70,9 @@ func Write(dir string, r NetworkResult, pretty bool) error {
 		return err
 	}
 	name := strings.ReplaceAll(r.Network, "/", "_") + ".json"
-	tmp := filepath.Join(dir, "."+name+".tmp")
+	// Include the PID so two concurrent netcrawler runs writing to the
+	// same output directory don't race on the same temp file.
+	tmp := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", name, os.Getpid()))
 	final := filepath.Join(dir, name)
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
