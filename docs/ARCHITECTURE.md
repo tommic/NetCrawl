@@ -1,141 +1,100 @@
-# Net Crawler – Architektur und Projektkonzept
+# NetCrawl – Architektur
 
-## 1. Ziel
+## Ziel
 
-Net Crawler ist ein Linux-orientiertes Werkzeug zur schnellen Inventarisierung von IPv4-Netzen, für die eine ausdrückliche Scan-Berechtigung besteht. Die Anwendung erhält ihre Arbeitsparameter aus einer JSON-Konfiguration, ermittelt erreichbare TCP-Dienste, versucht Reverse-DNS-Namen zu bestimmen und speichert die Ergebnisse getrennt pro `/24`-Netz.
+NetCrawl inventarisiert Hosts in eigenen bzw. autorisierten IPv4-Netzen. Der Scanner verarbeitet einzelne IPs, Bereiche und CIDR-Netze, berücksichtigt eine Denylist, prüft konfigurierte TCP-Ports und versucht für gefundene Hosts Reverse-DNS.
 
-Das Projekt ist bewusst modular angelegt. Der aktuelle MVP konzentriert sich auf einen TCP-Connect-Scan. HTTP-, TLS- und detaillierte Service-Erkennung sind als spätere Ausbaustufen vorgesehen.
+Die Scan-Rohdaten werden pro `/24` als JSON gespeichert. CSV- und Markdown-Dateien sind abgeleitete Exporte und können jederzeit neu erzeugt werden.
 
-## 2. Grundprinzip
-
-Die Verarbeitung folgt dieser Pipeline:
+## Datenfluss
 
 ```text
+.env
+ │
+ ├── CONFIG
+ ├── RESULTS
+ └── EXPORT
+ │
+ ▼
 config.json
-    |
-    v
-Config Parser / Validation
-    |
-    v
-Target Parser
-(IP / CIDR / IP-IP)
-    |
-    v
-Denylist Filter
-    |
-    v
-Gruppierung in /24 Network Jobs
-    |
-    v
-Concurrent TCP Connect Scanner
-    |
-    v
-Reverse DNS für gefundene Hosts
-    |
-    v
-Result Collector
-    |
-    v
-JSON pro /24
+ │
+ ▼
+netcrawler
+ │
+ ├── Target Parser
+ ├── Denylist
+ ├── /24 Gruppierung
+ ├── TCP Connect Scanner
+ └── Reverse DNS
+ │
+ ▼
+results/*.json
+ │
+ ├──────────────┐
+ ▼              ▼
+result2csv      result2md
+ │              │
+ ▼              ▼
+export/*.csv    export/*.md
 ```
 
-Ein `/24` ist die zentrale Ausgabeeinheit. Umgangssprachlich entspricht dies dem ursprünglich gewünschten „Class-C-Netz“, technisch verwendet das Projekt aber CIDR-Terminologie.
+`results/*.json` ist das interne Austauschformat. Exporte verändern die Rohdaten nicht.
 
-## 3. Konfiguration
+## Lokale Konfiguration
 
-`configs/example.json` ist die versionierte Vorlage. Lokale Konfigurationen werden nicht committed.
+`.env.example` ist die versionierte Vorlage:
 
 ```bash
-cp configs/example.json configs/config.json
+CONFIG=config.json
+RESULTS=results
+EXPORT=export
 ```
 
-### Targets
+Die lokale `.env` wird vom Script `netcrawl` geladen und nicht committed.
 
-`targets.include` akzeptiert:
+`CONFIG` bestimmt die Scan-Konfiguration, `RESULTS` das JSON-Ergebnisverzeichnis und `EXPORT` das Ziel für CSV/Markdown.
+
+`config.json` ist ebenfalls lokal. Die versionierte Vorlage befindet sich unter `configs/example.json`.
+
+## Targets
+
+Unterstützt werden:
 
 ```text
-192.168.1.10
+192.168.1.20
 192.168.1.0/24
-192.168.1.10-192.168.1.50
+192.168.1.20-192.168.1.80
 ```
 
-`targets.deny` akzeptiert dieselben Formate. Ein Deny-Eintrag hat immer Vorrang vor einem Include-Eintrag.
+IPv6 ist im MVP nicht vorgesehen.
 
-### Ports
+## Denylist
 
-Der MVP unterstützt Port-Presets und zusätzliche Custom-Ports. Die Presets werden im Scanner definiert.
+Die Denylist akzeptiert dieselben IPv4-Formate wie die Include-Targets. Ein Deny-Eintrag hat Vorrang vor Include.
 
-Aktuell vorgesehen:
+## Arbeitseinheit `/24`
 
-- `tiny` – sehr kleine Auswahl wichtiger Ports
-- `common` – typische Server- und Infrastrukturports
-- `web` – typische HTTP-/HTTPS-Ports
-- `database` – typische Datenbankports
+Targets werden für die Verarbeitung und Ergebnisablage nach `/24` gruppiert.
 
-Custom-Ports werden zum gewählten Preset hinzugefügt.
-
-### Performance
-
-`maxConcurrentConnections` bestimmt die maximale Zahl paralleler TCP-Connect-Versuche. `timeoutMs` begrenzt die Wartezeit je Verbindung.
-
-Der MVP nutzt normale TCP-Connects und benötigt deshalb keine Raw-Sockets und üblicherweise keine Root-Rechte.
-
-## 4. Target-Verarbeitung
-
-IPv4-Adressen, CIDR-Netze und Bereiche werden in interne Adressbereiche überführt. Anschließend werden einzelne Zieladressen den jeweiligen `/24`-Netzen zugeordnet.
-
-Mehrere Includes innerhalb desselben `/24` landen dadurch im selben logischen Ergebnisnetz. Doppelte IP-Adressen werden nur einmal verarbeitet.
-
-IPv6 ist im aktuellen Stand nicht vorgesehen.
-
-## 5. Denylist
-
-Die Denylist wird vor dem Scan geprüft. Ausgeschlossene Adressen erzeugen keinen TCP-Scan.
-
-Beispiele:
+Beispiel:
 
 ```text
-192.168.1.1
-192.168.10.0/24
-10.0.0.20-10.0.0.50
+192.168.10.0/24 → results/192.168.10.0_24.json
 ```
 
-Die Statistik des jeweiligen `/24` hält fest, wie viele Zieladressen aufgrund der Denylist ausgelassen wurden.
+Mehrere Targets innerhalb desselben `/24` landen im selben Network-Job.
 
-## 6. TCP-Scanner
+## TCP Scanner
 
-Der MVP verwendet einen parallelen TCP-Connect-Scan. Für jede Kombination aus Ziel-IP und konfiguriertem Port wird ein Verbindungsversuch durchgeführt.
+Der MVP verwendet einen parallelen TCP-Connect-Scan. Dadurch sind keine Raw Sockets und normalerweise keine Root-Rechte erforderlich.
 
-Ein erfolgreicher Connect bedeutet im MVP:
+Konfigurierbar sind insbesondere Port-Preset, zusätzliche Ports, Timeout und maximale Parallelität.
 
-```text
-TCP connection successful -> port open -> host relevant
-```
+## Reverse DNS
 
-Hosts ohne gefundenen offenen Port werden derzeit nicht in `hosts` gespeichert. Dadurch bleiben Ergebnisdateien kompakt.
+Für Hosts mit gefundenen offenen Ports kann ein PTR-/Reverse-DNS-Lookup durchgeführt werden. Ein fehlender PTR-Eintrag ist kein Scanfehler.
 
-Ein Host wird nicht ausschließlich aufgrund eines fehlgeschlagenen ICMP-Pings verworfen. Das ist eine bewusste Architekturentscheidung, weil viele Systeme ICMP blockieren.
-
-## 7. Hostnamen
-
-Für Hosts mit mindestens einem gefundenen offenen Port wird optional Reverse DNS durchgeführt.
-
-```text
-IP -> PTR lookup -> hostname/FQDN
-```
-
-Ein fehlender PTR-Eintrag verhindert nicht die Aufnahme des Hosts.
-
-## 8. Ergebnisformat
-
-Jedes bearbeitete `/24` erhält eine eigene JSON-Datei:
-
-```text
-results/
-├── 192.168.1.0_24.json
-├── 192.168.2.0_24.json
-└── ...
-```
+## JSON-Ergebnis
 
 Beispiel:
 
@@ -158,60 +117,68 @@ Beispiel:
 }
 ```
 
-Die Datei wird zunächst temporär geschrieben und anschließend umbenannt. Damit soll vermieden werden, dass eine teilweise geschriebene JSON-Datei als fertiges Ergebnis erscheint.
+Nur Hosts mit gefundenen offenen Ports erscheinen im aktuellen MVP als responsive Hosts.
 
-## 9. Exporter
+## CSV Export
 
-### CSV
-
-`result2csv` erzeugt genau eine Zeile pro Host. Alle Ports stehen gemeinsam in einem CSV-Feld.
+`result2csv` liest eine JSON-Datei oder ein Ergebnisverzeichnis.
 
 ```bash
-go build -o result2csv ./cmd/result2csv
-./result2csv --input ./results --output results.csv
+./result2csv --input ./results --output ./export
 ```
 
-Beispiel:
+Aus einem Ergebnisverzeichnis entstehen `all.csv` sowie einzelne Dateien pro `/24`.
 
-```csv
-network,ip,hostname,ports
-192.168.1.0/24,192.168.1.20,server.local,"22,80,443"
-```
+Ein Host entspricht genau einer CSV-Zeile. Ports werden gemeinsam im Feld `ports` gespeichert.
 
-### Markdown
+## Markdown Export
 
-`result2md` erzeugt einen lesbaren Bericht mit einem Abschnitt pro `/24` und einer Tabelle der gefundenen Hosts.
+`result2md` arbeitet analog:
 
 ```bash
-go build -o result2md ./cmd/result2md
-./result2md --input ./results --output results.md
+./result2md --input ./results --output ./export
 ```
 
-Sowohl ein einzelnes JSON als auch ein Ergebnisverzeichnis können als Input verwendet werden.
+Es entstehen `all.md` und einzelne Reports pro `/24`.
 
-## 10. Git und lokale Daten
+## Workflow Script
 
-Folgende Daten sollen nicht im Repository landen:
+`netcrawl` verbindet die einzelnen Programme und lädt vorher `.env`.
 
-- lokale Konfigurationen
-- Scan-Ergebnisse
-- erzeugte Exporte
-- lokal gebaute Binaries
+```text
+./netcrawl scan
+./netcrawl csv
+./netcrawl md
+./netcrawl export
+./netcrawl all
+```
 
-`configs/example.json` ist ausdrücklich die einzige Konfiguration, die versioniert wird.
+`export` erzeugt CSV und Markdown ohne neuen Scan. `all` führt Scan, CSV und Markdown nacheinander aus.
 
-## 11. Projektstruktur
+Environment-Werte können für einen einzelnen Lauf überschrieben werden:
+
+```bash
+CONFIG=test.json RESULTS=test-results EXPORT=test-export ./netcrawl all
+```
+
+## Projektstruktur
 
 ```text
 NetCrawl/
-├── cmd/
-│   ├── netcrawler/
-│   ├── result2csv/
-│   └── result2md/
+├── .env.example
+├── .gitignore
+├── README.md
+├── go.mod
+├── netcrawl
 ├── configs/
 │   └── example.json
-├── docs/
-│   └── ARCHITECTURE.md
+├── cmd/
+│   ├── netcrawler/
+│   │   └── main.go
+│   ├── result2csv/
+│   │   └── main.go
+│   └── result2md/
+│       └── main.go
 ├── internal/
 │   ├── config/
 │   ├── denylist/
@@ -219,72 +186,34 @@ NetCrawl/
 │   ├── result/
 │   └── scanner/
 │       └── tcp/
-├── .gitignore
-├── go.mod
-└── README.md
+├── docs/
+│   └── ARCHITECTURE.md
+├── results/       # generiert, nicht versioniert
+└── export/        # generiert, nicht versioniert
 ```
 
-## 12. Geplante Ausbaustufen
+## Git / lokale Daten
 
-Nach dem MVP sind folgende Funktionen vorgesehen:
+Folgende Daten gehören nicht ins Repository:
 
-- Service-Erkennung auf offenen Ports
-- optionale Versionsinformationen
-- HTTP-Statuscode
-- HTML-Seitentitel
-- HTTP-Server-Header
-- Redirect-Ziele
-- TLS-Zertifikatsinformationen
-- Common Name und SAN-Namen
-- Zertifikatsaussteller und Ablaufdatum
-- zusätzliche aus Zertifikaten gewonnene Hostnamen
-- MAC-Adresse und Hersteller im direkt erreichbaren Layer-2-Netz
-- Antwortzeiten
-- `firstSeen` und `lastSeen`
-- Scan-ID und Config-Hash
-- Resume/Restart bereits abgeschlossener `/24`-Jobs
-- Vergleich mehrerer Scans zur Erkennung von Änderungen
-- optional weitere Port-Presets
-- langfristig eventuell IPv6
+```text
+.env
+config.json
+results/
+export/
+netcrawler
+result2csv
+result2md
+```
 
-## 13. Bewusste Designentscheidungen
+Die Vorlagen `.env.example` und `configs/example.json` werden dagegen versioniert.
 
-### Go
+## Aktuelle Grenzen
 
-Go wurde als guter Kompromiss aus Netzwerkperformance, Parallelität, einfacher Entwicklung und unkomplizierten Linux-Binaries gewählt.
+Der MVP konzentriert sich auf IPv4 und TCP-Connect-Scanning. Noch nicht Bestandteil des aktuellen Standes sind unter anderem IPv6, UDP-Scanning, TLS-Metadaten, HTTP-Metadaten und detaillierte Service-/Versions-Erkennung.
 
-### TCP Connect statt SYN Scan
+Diese Funktionen können später auf Basis des JSON-Datenmodells ergänzt werden.
 
-Der MVP verwendet den normalen Netzwerkstack des Betriebssystems. Das vereinfacht Entwicklung und Betrieb und vermeidet Root-/Raw-Socket-Anforderungen.
+## Sicherheit
 
-### `/24` als Arbeitseinheit
-
-Die Aufteilung hält Dateien klein, ermöglicht später Resume-Funktionen und erleichtert den Vergleich einzelner Netzsegmente.
-
-### JSON als primäres Format
-
-JSON bleibt das kanonische Maschinenformat. CSV und Markdown sind lediglich abgeleitete Exporte. Erweiterungen sollten deshalb zuerst im JSON-Datenmodell abgebildet und anschließend in den Exportern ergänzt werden.
-
-## 14. Sicherheits- und Betriebsgrenze
-
-Net Crawler ist für eigene Netze oder Umgebungen gedacht, für die eine ausdrückliche Berechtigung zum aktiven Scannen vorliegt. Hohe Parallelität kann Firewalls, IDS/IPS, Logging-Systeme oder schwache Netzwerkgeräte belasten. Deshalb sind Concurrency und Timeouts konfigurierbar.
-
-## 15. Aktueller MVP-Status
-
-Implementiert:
-
-- JSON-Konfiguration
-- IPv4 Einzeladressen
-- CIDR
-- IP-Ranges
-- Denylist
-- `/24`-Gruppierung
-- Port-Presets
-- Custom-Ports
-- paralleler TCP-Connect-Scan
-- Reverse DNS
-- JSON-Ausgabe pro `/24`
-- CSV-Export
-- Markdown-Export
-
-Noch nicht implementiert sind insbesondere HTTP-, TLS- und detaillierte Service-Erkennung sowie Resume und historische Scan-Vergleiche.
+NetCrawl ist für eigene oder ausdrücklich zum Scan freigegebene Netzwerke vorgesehen. Denylist und konfigurierbare Targets sollen helfen, den Scanbereich eindeutig einzugrenzen.

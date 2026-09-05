@@ -1,19 +1,17 @@
 # Net Crawler MVP
 
-Ein kleiner Go-basierter TCP-Connect-Scanner für eigene bzw. autorisierte Netze.
+Ein Go-basierter TCP-Connect-Scanner für eigene bzw. autorisierte Netze.
 
 ## Voraussetzungen
 
-- Go 1.23+
 - Linux empfohlen
-
-Zum Bauen muss Go auf dem Linux-System installiert sein. Prüfen:
+- Go 1.23+ zum Bauen
 
 ```bash
 go version
 ```
 
-Falls `go` nicht gefunden wird, muss Go zuerst installiert werden. Je nach Distribution z. B.:
+Falls Go fehlt:
 
 ```bash
 # Debian / Ubuntu
@@ -27,139 +25,15 @@ sudo dnf install golang
 sudo pacman -S go
 ```
 
-Danach erneut mit `go version` prüfen.
+## 1. `.env` einrichten
 
-## Konfiguration
-
-Die mitgelieferte `configs/example.json` dient nur als Vorlage und bleibt im Repository.
-
-Vor dem ersten Start eine eigene lokale Konfiguration anlegen:
+Zuerst die Environment-Vorlage kopieren:
 
 ```bash
-cp configs/example.json configs/config.json
-```
-
-Danach `configs/config.json` bearbeiten und insbesondere `targets.include` auf das eigene bzw. autorisierte Netz anpassen.
-
-Die lokalen Dateien unter `configs/` werden über `.gitignore` nicht committed. Nur `configs/example.json` wird versioniert.
-
-Start mit der eigenen Konfiguration:
-
-```bash
-./netcrawler --config configs/config.json
-```
-
-Auch das Verzeichnis `results/` und `results.csv` werden ignoriert, damit Scan-Ergebnisse nicht versehentlich ins Git-Repository gelangen.
-
-## Build
-
-```bash
-go build -o netcrawler ./cmd/netcrawler
-```
-
-## Start
-
-Verwende eine Kopie von `configs/example.json` als lokale Konfiguration (siehe Abschnitt **Konfiguration**).
-
-Die Ergebnisse landen pro `/24` unter `results/`.
-
-## MVP-Funktionen
-
-- IPv4, CIDR und `IP-IP` Targets
-- Denylist mit denselben Formaten
-- Gruppierung pro `/24`
-- paralleler TCP-Connect-Scan
-- Port-Presets plus Custom-Ports
-- Reverse-DNS für Hosts mit offenen Ports
-- atomare JSON-Ausgabe pro `/24`
-
-## Hinweis
-
-Nur in Netzen einsetzen, für die du eine ausdrückliche Berechtigung zum Scannen hast.
-
-
-## JSON-Ergebnisse als CSV exportieren
-
-Zum Projekt gehört das Tool `result2csv`. Es liest eine einzelne Ergebnis-JSON oder alle `.json`-Dateien eines Ergebnisverzeichnisses und erzeugt eine gemeinsame CSV-Datei.
-
-Build:
-
-```bash
-go build -o result2csv ./cmd/result2csv
-```
-
-Komplettes Ergebnisverzeichnis exportieren:
-
-```bash
-./result2csv --input ./results --output ./results.csv
-```
-
-Eine einzelne `/24`-Ergebnisdatei exportieren:
-
-```bash
-./result2csv --input ./results/192.168.1.0_24.json --output ./network.csv
-```
-
-Die CSV enthält pro offenem Port eine Zeile:
-
-```text
-network,ip,hostname,port
-192.168.1.0/24,192.168.1.20,server.local,22
-192.168.1.0/24,192.168.1.20,server.local,80
-```
-
-## Standard-Workflow
-
-Die Beispielkonfiguration zuerst kopieren:
-
-```bash
-cp configs/example.json config.json
-```
-
-`netcrawler` verwendet jetzt ohne Parameter automatisch `./config.json`.
-
-```bash
-./netcrawler
-```
-
-Alle Exporte landen standardmäßig unter `export/`. CSV und Markdown erzeugen jeweils eine Gesamtdatei und zusätzlich eine Datei pro `/24`:
-
-```text
-export/
-├── all.csv
-├── all.md
-├── 192.168.1.0_24.csv
-├── 192.168.1.0_24.md
-└── ...
-```
-
-Kompletter Ablauf:
-
-```bash
-./netcrawl all
-```
-
-Einzelschritte:
-
-```bash
-./netcrawl scan
-./netcrawl csv
-./netcrawl md
-./netcrawl export
-```
-
-`export` führt CSV und Markdown ohne neuen Scan aus. Die Verzeichnisse `results/`, `export/` sowie die lokale `config.json` werden nicht committed.
-
-## Lokale Environment-Konfiguration
-
-Beim ersten Setup die Vorlagen kopieren:
-
-```bash
-cp configs/example.json config.json
 cp .env.example .env
 ```
 
-`.env` steuert die Standardpfade:
+Standardinhalt:
 
 ```bash
 CONFIG=config.json
@@ -167,6 +41,252 @@ RESULTS=results
 EXPORT=export
 ```
 
-Das Script `netcrawl` lädt `.env` automatisch. Ohne `.env` gelten dieselben Standardwerte.
+Bedeutung:
 
-`.env`, `config.json`, `results/` und `export/` werden nicht committed; `.env.example` und `configs/example.json` bleiben als Vorlagen im Repository.
+- `CONFIG` – Pfad zur verwendeten Scan-Konfiguration.
+- `RESULTS` – Verzeichnis für die JSON-Rohdaten des Scans.
+- `EXPORT` – Zielverzeichnis für CSV- und Markdown-Exporte.
+
+Die Werte werden vom `netcrawl`-Workflow verwendet. Ohne `.env` gelten dieselben Standardwerte.
+
+`.env` wird nicht committed, `.env.example` dagegen schon.
+
+## 2. `config.json` einrichten
+
+Danach die Scan-Konfiguration kopieren:
+
+```bash
+cp configs/example.json config.json
+```
+
+In `config.json` werden Targets, Denylist, Ports, Timeouts und weitere Scan-Einstellungen festgelegt.
+
+Insbesondere `targets.include` auf das eigene bzw. autorisierte Netz anpassen.
+
+`config.json` wird nicht committed. `configs/example.json` dient als versionierte Vorlage.
+
+## Build
+
+```bash
+go build -o netcrawler ./cmd/netcrawler
+go build -o result2csv ./cmd/result2csv
+go build -o result2md ./cmd/result2md
+chmod +x netcrawl
+```
+
+## `netcrawler`
+
+Start mit der Standardkonfiguration `./config.json`:
+
+```bash
+./netcrawler
+```
+
+Andere Konfiguration:
+
+```bash
+./netcrawler --config configs/meine-config.json
+```
+
+Parameter:
+
+```text
+--config <datei>    Pfad zur Scan-Konfiguration
+                    Default: config.json
+```
+
+Die JSON-Ergebnisse werden entsprechend `output.directory` aus der Scan-Konfiguration geschrieben. Für den Standard-Workflow sollte dieses Verzeichnis mit `RESULTS` aus `.env` übereinstimmen.
+
+## `result2csv`
+
+Exportiert vorhandene JSON-Scanergebnisse als CSV.
+
+Standard:
+
+```bash
+./result2csv
+```
+
+Explizit:
+
+```bash
+./result2csv --input ./results --output ./export
+```
+
+Parameter:
+
+```text
+--input <pfad>      JSON-Datei oder Verzeichnis mit JSON-Ergebnissen
+                    Default: ./results
+
+--output <ordner>   Zielverzeichnis
+                    Default: ./export
+```
+
+Bei einem Ergebnisverzeichnis entstehen:
+
+```text
+export/
+├── all.csv
+├── 192.168.1.0_24.csv
+├── 192.168.2.0_24.csv
+└── ...
+```
+
+`all.csv` enthält alle Hosts. Zusätzlich wird pro `/24` eine CSV erzeugt.
+
+Jeder Host steht genau einmal in der CSV. Die offenen Ports werden gemeinsam im Feld `ports` gespeichert.
+
+## `result2md`
+
+Exportiert vorhandene JSON-Scanergebnisse als Markdown.
+
+Standard:
+
+```bash
+./result2md
+```
+
+Explizit:
+
+```bash
+./result2md --input ./results --output ./export
+```
+
+Parameter:
+
+```text
+--input <pfad>      JSON-Datei oder Verzeichnis mit JSON-Ergebnissen
+                    Default: ./results
+
+--output <ordner>   Zielverzeichnis
+                    Default: ./export
+```
+
+Es entstehen:
+
+```text
+export/
+├── all.md
+├── 192.168.1.0_24.md
+├── 192.168.2.0_24.md
+└── ...
+```
+
+`all.md` enthält den gesamten Scan. Zusätzlich wird pro `/24` ein eigener Markdown-Report erzeugt.
+
+## `netcrawl` Workflow
+
+`netcrawl` lädt automatisch `.env`, falls die Datei vorhanden ist.
+
+Kompletter Ablauf:
+
+```bash
+./netcrawl all
+```
+
+Entspricht:
+
+```text
+netcrawler
+    ↓
+RESULTS/*.json
+    ↓
+result2csv + result2md
+    ↓
+EXPORT/
+```
+
+Verfügbare Commands:
+
+```bash
+./netcrawl scan
+./netcrawl csv
+./netcrawl md
+./netcrawl export
+./netcrawl all
+```
+
+Bedeutung:
+
+```text
+scan      Nur Netzwerk-Scan ausführen.
+csv       Nur CSV aus vorhandenen JSON-Ergebnissen erzeugen.
+md        Nur Markdown aus vorhandenen JSON-Ergebnissen erzeugen.
+export    CSV und Markdown aus vorhandenen JSON-Ergebnissen erzeugen.
+all       Scan durchführen und anschließend CSV + Markdown erzeugen.
+```
+
+Die Pfade können auch temporär ohne Änderung der `.env` überschrieben werden:
+
+```bash
+CONFIG=test.json RESULTS=test-results EXPORT=test-export ./netcrawl all
+```
+
+Damit eignet sich derselbe Build beispielsweise für unterschiedliche Scan-Konfigurationen.
+
+## Import und Export
+
+Der Datenfluss ist bewusst getrennt:
+
+```text
+config.json
+     │
+     ▼
+ netcrawler
+     │
+     ▼
+results/*.json
+     │
+     ├──────────────┐
+     ▼              ▼
+result2csv      result2md
+     │              │
+     ▼              ▼
+export/*.csv    export/*.md
+```
+
+Die JSON-Dateien unter `results/` sind damit das interne Austauschformat.
+
+Die Exporter verändern die Scan-Ergebnisse nicht. Sie lesen vorhandene JSON-Dateien über `--input` ein und schreiben ihre Ausgabe über `--output`.
+
+Dadurch können Exporte jederzeit erneut erzeugt werden, ohne das Netzwerk erneut zu scannen.
+
+## Standard-Verzeichnisstruktur
+
+```text
+NetCrawl/
+├── .env.example
+├── .env                 # lokal, ignoriert
+├── config.json          # lokal, ignoriert
+├── configs/
+│   └── example.json
+├── results/             # JSON-Rohdaten, ignoriert
+├── export/              # CSV/Markdown, ignoriert
+├── netcrawler
+├── result2csv
+├── result2md
+└── netcrawl
+```
+
+## Git
+
+Nicht committed werden:
+
+```text
+.env
+config.json
+results/
+export/
+netcrawler
+result2csv
+result2md
+```
+
+## Hinweis
+
+Nur in Netzen einsetzen, für die eine ausdrückliche Berechtigung zum Scannen besteht.
+
+## Technische Dokumentation
+
+Die Architektur und der Datenfluss sind ausführlicher in `docs/ARCHITECTURE.md` beschrieben.

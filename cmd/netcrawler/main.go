@@ -24,10 +24,14 @@ func main() {
 
 	fmt.Printf("[INFO] Loading config: %s\n", *configFile)
 	cfg, err := config.Load(*configFile)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	deny, err := denylist.New(cfg.Targets.Deny)
-	if err != nil { log.Fatalf("denylist: %v", err) }
+	if err != nil {
+		log.Fatalf("denylist: %v", err)
+	}
 
 	jobs := map[string][]netip.Addr{}
 	seen := map[string]bool{}
@@ -35,19 +39,28 @@ func main() {
 
 	for _, target := range cfg.Targets.Include {
 		r, err := iprange.Parse(target)
-		if err != nil { log.Fatalf("target %q: %v", target, err) }
+		if err != nil {
+			log.Fatalf("target %q: %v", target, err)
+		}
 		for _, a := range iprange.Addresses(r) {
 			p := netip.PrefixFrom(a, 24).Masked().String()
-			if deny.Contains(a) { denied[p]++; continue }
+			if deny.Contains(a) {
+				denied[p]++
+				continue
+			}
 			key := a.String()
-			if seen[key] { continue }
+			if seen[key] {
+				continue
+			}
 			seen[key] = true
 			jobs[p] = append(jobs[p], a)
 		}
 	}
 
 	networks := make([]string, 0, len(jobs))
-	for n := range jobs { networks = append(networks, n) }
+	for n := range jobs {
+		networks = append(networks, n)
+	}
 	sort.Strings(networks)
 	ports := tcp.Ports(cfg.Ports.Preset, cfg.Ports.Custom)
 	fmt.Printf("[INFO] Generated %d network job(s), %d port(s)\n", len(networks), len(ports))
@@ -66,7 +79,9 @@ func main() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Hostname.TimeoutMs)*time.Millisecond)
 				names, err := net.DefaultResolver.LookupAddr(ctx, ip)
 				cancel()
-				if err == nil && len(names) > 0 { h.Hostname = strings.TrimSuffix(names[0], ".") }
+				if err == nil && len(names) > 0 {
+					h.Hostname = strings.TrimSuffix(names[0], ".")
+				}
 			}
 			hosts[ip] = h
 			openCount += len(ps)
@@ -75,8 +90,8 @@ func main() {
 
 		r := result.NetworkResult{
 			SchemaVersion: 1,
-			Network: network,
-			Hosts: hosts,
+			Network:       network,
+			Hosts:         hosts,
 			Statistics: result.Statistics{
 				Scanned: len(addresses), Denied: denied[network],
 				Responsive: len(hosts), OpenPorts: openCount,

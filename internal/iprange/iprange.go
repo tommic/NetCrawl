@@ -14,18 +14,26 @@ type Range struct {
 func Parse(value string) (Range, error) {
 	value = strings.TrimSpace(value)
 	if p, err := netip.ParsePrefix(value); err == nil {
-		if !p.Addr().Is4() { return Range{}, fmt.Errorf("IPv6 is not supported") }
+		if !p.Addr().Is4() {
+			return Range{}, fmt.Errorf("IPv6 is not supported")
+		}
 		p = p.Masked()
 		first := p.Addr()
 		b := first.As4()
 		hostBits := 32 - p.Bits()
 		n := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
-		if hostBits == 32 { n = ^uint32(0) } else { n |= (uint32(1)<<hostBits)-1 }
-		last := netip.AddrFrom4([4]byte{byte(n>>24), byte(n>>16), byte(n>>8), byte(n)})
+		if hostBits == 32 {
+			n = ^uint32(0)
+		} else {
+			n |= (uint32(1) << hostBits) - 1
+		}
+		last := netip.AddrFrom4([4]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)})
 		return Range{first, last}, nil
 	}
 	if a, err := netip.ParseAddr(value); err == nil {
-		if !a.Is4() { return Range{}, fmt.Errorf("IPv6 is not supported") }
+		if !a.Is4() {
+			return Range{}, fmt.Errorf("IPv6 is not supported")
+		}
 		return Range{a, a}, nil
 	}
 	parts := strings.Split(value, "-")

@@ -21,10 +21,10 @@ type Targets struct {
 }
 
 type Ports struct {
-	Enabled   bool  `json:"enabled"`
+	Enabled   bool   `json:"enabled"`
 	Preset    string `json:"preset"`
-	Custom    []int `json:"custom"`
-	TimeoutMs int   `json:"timeoutMs"`
+	Custom    []int  `json:"custom"`
+	TimeoutMs int    `json:"timeoutMs"`
 }
 
 type Hostname struct {
