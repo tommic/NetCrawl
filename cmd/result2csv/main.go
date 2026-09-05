@@ -18,7 +18,7 @@ import (
 )
 
 type row struct {
-	Network, IP, Hostname, Ports string
+	Network, IP, Hostname, Ports, Details string
 }
 
 func main() {
@@ -179,7 +179,7 @@ func read(filename string) (result.NetworkResult, []row, error) {
 		for _, port := range ports {
 			values = append(values, strconv.Itoa(port))
 		}
-		rows = append(rows, row{scan.Network, ip, host.Hostname, strings.Join(values, ",")})
+		rows = append(rows, row{scan.Network, ip, host.Hostname, strings.Join(values, ","), result.FormatDetails(host.Details, "; ")})
 	}
 	sortRows(rows)
 	return scan, rows, nil
@@ -205,11 +205,11 @@ func writeCSV(filename string, rows []row) error {
 	}
 	defer file.Close()
 	writer := csv.NewWriter(file)
-	if err := writer.Write([]string{"network", "ip", "hostname", "ports"}); err != nil {
+	if err := writer.Write([]string{"network", "ip", "hostname", "ports", "details"}); err != nil {
 		return err
 	}
 	for _, row := range rows {
-		if err := writer.Write([]string{row.Network, row.IP, row.Hostname, row.Ports}); err != nil {
+		if err := writer.Write([]string{row.Network, row.IP, row.Hostname, row.Ports, row.Details}); err != nil {
 			return err
 		}
 	}

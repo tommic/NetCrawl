@@ -63,6 +63,8 @@ In `config.json` werden Targets, Denylist, Ports, Timeouts und weitere Scan-Eins
 
 Insbesondere `targets.include` auf das eigene bzw. autorisierte Netz anpassen.
 
+Über `enrichment.enabled` lässt sich zusätzlich eine grobe Service-Erkennung für bestimmte offene Standardports aktivieren: TLS-Zertifikat (Subject/Issuer/Ablaufdatum) bei `443`/`8443`, HTTP-Titel/Server-Header bei `80`/`8000`/`8080`/`8081`/`8888`, und Begrüßungs-Banner bei `21`/`22`/`25`/`110`/`143`. Details dazu in `docs/ARCHITECTURE.md`.
+
 `config.json` wird nicht committed. `configs/example.json` dient als versionierte Vorlage.
 
 ## Build
@@ -135,7 +137,7 @@ export/
 
 `all.csv` enthält alle Hosts. Zusätzlich wird pro `/24` eine CSV erzeugt.
 
-Jeder Host steht genau einmal in der CSV. Die offenen Ports werden gemeinsam im Feld `ports` gespeichert.
+Jeder Host steht genau einmal in der CSV. Die offenen Ports werden gemeinsam im Feld `ports` gespeichert. Vorhandene Service-Erkennungsdaten (siehe `enrichment` in `config.json`) landen im Feld `details`.
 
 ## `result2md`
 

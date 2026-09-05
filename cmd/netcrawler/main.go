@@ -16,6 +16,7 @@ import (
 	"netcrawler/internal/envconfig"
 	"netcrawler/internal/iprange"
 	"netcrawler/internal/result"
+	"netcrawler/internal/scanner/probe"
 	"netcrawler/internal/scanner/tcp"
 )
 
@@ -93,6 +94,11 @@ func main() {
 			found = tcp.Scan(context.Background(), addresses, ports, time.Duration(cfg.Ports.TimeoutMs)*time.Millisecond, cfg.Performance.MaxConcurrentConnections)
 		}
 
+		var details map[string]map[int]probe.Info
+		if cfg.Enrichment.Enabled {
+			details = probe.Enrich(context.Background(), found, time.Duration(cfg.Enrichment.TimeoutMs)*time.Millisecond, cfg.Performance.MaxConcurrentConnections)
+		}
+
 		hosts := map[string]result.Host{}
 		openCount := 0
 		for ip, ps := range found {
@@ -103,6 +109,19 @@ func main() {
 				cancel()
 				if err == nil && len(names) > 0 {
 					h.Hostname = strings.TrimSuffix(names[0], ".")
+				}
+			}
+			if info, ok := details[ip]; ok {
+				h.Details = make(map[int]result.PortInfo, len(info))
+				for port, d := range info {
+					h.Details[port] = result.PortInfo{
+						Banner:      d.Banner,
+						HTTPTitle:   d.HTTPTitle,
+						HTTPServer:  d.HTTPServer,
+						TLSSubject:  d.TLSSubject,
+						TLSIssuer:   d.TLSIssuer,
+						TLSNotAfter: d.TLSNotAfter,
+					}
 				}
 			}
 			hosts[ip] = h

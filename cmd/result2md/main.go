@@ -162,7 +162,7 @@ func render(scans []result.NetworkResult) string {
 	for _, scan := range scans {
 		fmt.Fprintf(&b, "## %s\n\n- Scanned: %d\n- Denied: %d\n- Responsive: %d\n- Open ports: %d\n\n",
 			scan.Network, scan.Statistics.Scanned, scan.Statistics.Denied, scan.Statistics.Responsive, scan.Statistics.OpenPorts)
-		b.WriteString("| IP | Hostname | Ports |\n|---|---|---|\n")
+		b.WriteString("| IP | Hostname | Ports | Details |\n|---|---|---|---|\n")
 		var ips []string
 		for ip := range scan.Hosts {
 			ips = append(ips, ip)
@@ -176,7 +176,8 @@ func render(scans []result.NetworkResult) string {
 			for _, port := range ports {
 				values = append(values, strconv.Itoa(port))
 			}
-			fmt.Fprintf(&b, "| %s | %s | %s |\n", escape(ip), escape(host.Hostname), escape(strings.Join(values, ", ")))
+			details := result.FormatDetails(host.Details, "<br>")
+			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", escape(ip), escape(host.Hostname), escape(strings.Join(values, ", ")), escape(details))
 		}
 		b.WriteString("\n")
 	}
