@@ -67,6 +67,10 @@ Insbesondere `targets.include` auf das eigene bzw. autorisierte Netz anpassen.
 
 Über `enrichment.enabled` lässt sich zusätzlich eine grobe Service-Erkennung für bestimmte offene Standardports aktivieren: TLS-Zertifikat + HTTPS-Titel/Server-Header bei `443`/`8443`, HTTP-Titel/Server-Header bei `80`/`8000`/`8080`/`8081`/`8888`, Begrüßungs-Banner bei `21`/`22`/`25`/`110`/`143`, und zusätzlich bei `22` der SSH-Host-Key-Fingerprint (wie `ssh-keyscan`, ohne jeden Login-Versuch). Details dazu in `docs/ARCHITECTURE.md`.
 
+Ports werden über `ports.preset` (`tiny`, `common`, `web`, `database`, `all` oder `custom`) und `ports.custom` gewählt. In `ports.custom` sind einzelne Ports und Bereiche erlaubt, z. B. `[8000, "9000-9010"]`.
+
+Die Konfiguration wird vor dem Scan vollständig geprüft. Tippfehler bei Schlüsseln, unbekannte Presets, ungültige Ports, Targets oder Timeouts führen zu einer klaren Fehlermeldung, bevor eine einzige Verbindung aufgebaut wird.
+
 `config.json` wird nicht committed. `configs/example.json` dient als versionierte Vorlage.
 
 ## Build
@@ -77,6 +81,15 @@ go build -o result2csv ./cmd/result2csv
 go build -o result2md ./cmd/result2md
 chmod +x netcrawl
 ```
+
+## Tests
+
+```bash
+make test     # go test -race ./...
+make check    # gofmt, go vet und Tests – dasselbe wie die CI
+```
+
+Die Tests bauen Verbindungen ausschließlich zu `127.0.0.1` auf, und zwar zu Test-Servern, die sie selbst starten. Jeder Push und Pull Request wird per GitHub Actions (`.github/workflows/ci.yml`) geprüft.
 
 ## `netcrawler`
 
@@ -98,6 +111,10 @@ Parameter:
 --config <datei>    Pfad zur Scan-Konfiguration
                     Default: config.json
 ```
+
+Abbrechen: Beim ersten Strg+C wird das gerade laufende `/24` noch fertig gescannt und geschrieben, danach endet der Lauf. Ein zweites Strg+C bricht sofort ab; das unvollständige Netz wird dann nicht geschrieben. Exit-Codes: `0` vollständig, `1` Fehler, `130` abgebrochen.
+
+Jede Ergebnisdatei enthält `scanId`, `configHash`, `scanStarted` und `scanFinished` (siehe `docs/ARCHITECTURE.md`).
 
 Die JSON-Ergebnisse werden entsprechend `output.directory` aus der Scan-Konfiguration geschrieben. Für den Standard-Workflow sollte dieses Verzeichnis mit `RESULTS` aus `.env` übereinstimmen.
 
