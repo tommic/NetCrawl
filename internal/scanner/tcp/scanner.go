@@ -12,11 +12,20 @@ import (
 	"time"
 )
 
+// DialFunc opens a connection, like net.Dialer.DialContext.
+type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
 // Scan tries every (address, port) pair with at most concurrency parallel
 // connection attempts and returns the open ports per address. If ctx is
 // cancelled, Scan stops early and returns what it found so far; callers
 // should check ctx.Err() to tell a partial result from a complete one.
 func Scan(ctx context.Context, addresses []netip.Addr, ports []int, timeout time.Duration, concurrency int) map[string][]int {
+	return ScanWithDialer(ctx, nil, addresses, ports, timeout, concurrency)
+}
+
+// ScanWithDialer is Scan with a custom dial function (nil uses
+// net.Dialer). Each attempt is bounded by timeout via its context.
+func ScanWithDialer(ctx context.Context, dial DialFunc, addresses []netip.Addr, ports []int, timeout time.Duration, concurrency int) map[string][]int {
 	type job struct {
 		addr netip.Addr
 		port int
@@ -34,8 +43,14 @@ func Scan(ctx context.Context, addresses []netip.Addr, ports []int, timeout time
 		go func() {
 			defer wg.Done()
 			d := net.Dialer{Timeout: timeout}
+			dialFn := dial
+			if dialFn == nil {
+				dialFn = d.DialContext
+			}
 			for j := range jobs {
-				c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(j.addr.String(), strconv.Itoa(j.port)))
+				dctx, cancel := context.WithTimeout(ctx, timeout)
+				c, err := dialFn(dctx, "tcp", net.JoinHostPort(j.addr.String(), strconv.Itoa(j.port)))
+				cancel()
 				if err == nil {
 					c.Close()
 					mu.Lock()
