@@ -23,7 +23,7 @@ cd deploy/testenv
 ./testenv.sh down     # alles wieder entfernen (inkl. Datenbank)
 ```
 
-Im Browser unter `http://127.0.0.1:8080` anmelden (Benutzer `admin`, Passwort zeigt `./testenv.sh login`). Ports lassen sich mit `NETCRAWL_PORT` und `NETCRAWL_TARGET_PORT` beim ersten `up` ändern. Das Testziel ist ein kleiner Webserver auf `127.0.0.1:18081`.
+Im Browser unter `http://127.0.0.1:8080` anmelden (Benutzer `admin`, Passwort zeigt `./testenv.sh login`). Alle Container nutzen das Host-Netz und lauschen nur auf `127.0.0.1`: Server `8080`, PostgreSQL `55432`, Testziel (kleiner Webserver) `18081`. Andere Ports lassen sich beim ersten `up` mit `NETCRAWL_PORT`, `NETCRAWL_DB_PORT` und `NETCRAWL_TARGET_PORT` setzen. Docker-Netze und Dockers DNS werden nicht gebraucht, das funktioniert deshalb auch mit Docker in einem LXC.
 
 ## Weboberfläche
 

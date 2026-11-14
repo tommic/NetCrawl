@@ -33,8 +33,12 @@ diagnose() {
   compose ps -a >&2 || true
   echo "--- last server log lines" >&2
   compose logs --tail 40 server >&2 || true
-  echo "--- what is listening on port $(port)" >&2
-  (command -v ss >/dev/null && ss -ltnp 2>/dev/null | grep -E ":$(port)\b") >&2 || echo "(ss not available or nothing found)" >&2
+  echo "--- what is listening on the server and database ports" >&2
+  for p in "$(port)" "$(grep '^NETCRAWL_DB_PORT=' "$ENVFILE" | cut -d= -f2)"; do
+    [[ -n $p ]] || continue
+    echo "port $p:" >&2
+    (command -v ss >/dev/null && ss -ltnp 2>/dev/null | grep -E ":$p\b") >&2 || echo "  (ss not available or nothing listening)" >&2
+  done
   echo >&2
   echo "Please send this output. To retry: ./testenv.sh down && ./testenv.sh up" >&2
 }
@@ -55,6 +59,7 @@ cmd_up() {
       echo "NETCRAWL_DB_PASSWORD=$(rand)"
       echo "NETCRAWL_PORT=${NETCRAWL_PORT:-8080}"
       echo "NETCRAWL_TARGET_PORT=${NETCRAWL_TARGET_PORT:-18081}"
+      echo "NETCRAWL_DB_PORT=${NETCRAWL_DB_PORT:-55432}"
     } > "$ENVFILE"
     umask 022
   fi
