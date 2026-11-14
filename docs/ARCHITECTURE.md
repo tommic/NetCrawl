@@ -86,17 +86,73 @@ Beispiel:
 
 Mehrere Targets innerhalb desselben `/24` landen im selben Network-Job.
 
+Die Planung (`internal/engine/plan.go`) speichert pro Job nur das `/24` und die Anzahl der Ziele bzw. ausgeschlossenen Adressen. Die einzelnen Adressen werden erst beim Scannen des jeweiligen Netzes erzeugt; überlappende Include-Targets werden dabei nur einmal gezählt. So bleibt auch ein großes Target klein im Speicher.
+
+Ein einzelner Lauf ist auf höchstens 65.536 `/24`-Netze (die Größe eines `/8`) begrenzt. Ein vertipptes Präfix wie `10.0.0.0/1` bricht dadurch sofort mit einer Fehlermeldung ab, statt Millionen Jobs zu planen.
+
+## Scan-Engine
+
+Die Ablauflogik liegt im Paket `internal/engine` und nicht mehr in `cmd/netcrawler`. Das CLI ist nur noch eine dünne Hülle: Es lädt die Konfiguration, erstellt den Plan, startet die Engine und schreibt jedes fertige Netz über `result.Write` als JSON. Ein späterer Server kann dieselbe Engine nutzen und die Ergebnisse stattdessen in der Datenbank speichern.
+
+```text
+config.Load  →  engine.BuildPlan  →  engine.Run(ctx, plan, sink)
+                                         │
+                                         ├── tcp.Scan
+                                         ├── probe.Enrich   (optional)
+                                         ├── Reverse DNS    (parallel, optional)
+                                         └── sink(result)   → results/*.json
+```
+
+## Abbruch (Strg+C)
+
+- **Erstes** Strg+C bzw. `SIGTERM`: Das gerade laufende `/24` wird noch fertig gescannt und geschrieben, danach endet der Lauf. Weitere Netze werden nicht mehr begonnen.
+- **Zweites** Strg+C: sofortiger Abbruch. Das unvollständige `/24` wird **nicht** geschrieben, damit keine halben Ergebnisse als vollständig erscheinen.
+
+Exit-Codes: `0` = vollständig, `1` = Fehler (z. B. ungültige Konfiguration), `130` = abgebrochen.
+
+## Konfigurationsprüfung
+
+`config.json` wird vor jedem Netzwerkzugriff vollständig geprüft. Alle gefundenen Fehler werden gemeinsam gemeldet:
+
+- unbekannte Schlüssel (Tippfehler wie `"timout"`) – Groß-/Kleinschreibung wird dabei wie bei Go üblich ignoriert,
+- `version` ungleich `1`, leere oder ungültige `targets.include`, ungültige `targets.deny`,
+- unbekanntes `ports.preset`, ungültige Ports oder Bereiche in `ports.custom`, keine Ports trotz `ports.enabled: true`,
+- Timeouts außerhalb von 1–60.000 ms, `performance.maxConcurrentConnections` außerhalb von 1–10.000.
+
+Fehlende Werte (`0` bzw. nicht gesetzt) erhalten weiterhin die Standardwerte.
+
 ## TCP Scanner
 
 Der MVP verwendet einen parallelen TCP-Connect-Scan. Dadurch sind keine Raw Sockets und normalerweise keine Root-Rechte erforderlich.
 
 Konfigurierbar sind insbesondere Port-Preset, zusätzliche Ports, Timeout und maximale Parallelität.
 
+Presets (`ports.preset`):
+
+| Preset | Ports |
+|---|---|
+| `tiny` | 22, 80, 443 |
+| `common` | 21, 22, 25, 53, 80, 110, 143, 443, 445, 993, 995, 3306, 3389, 5432, 6379, 8080, 8443 |
+| `web` | 80, 443, 8000, 8080, 8081, 8443, 8888 |
+| `database` | 1433, 1521, 3306, 5432, 6379, 27017 |
+| `all` | 1–65535 |
+| `custom` (oder leer) | nur die Einträge aus `ports.custom` |
+
+`ports.custom` ergänzt das Preset um einzelne Ports oder Bereiche, als Zahl oder als Text:
+
+```json
+"custom": [8000, "8080", "9000-9010"]
+```
+
+Ein unbekanntes Preset oder ein ungültiger Eintrag ist ein Fehler und wird nicht stillschweigend ignoriert. Implementiert in `internal/ports`.
+
 Über `ports.enabled` lässt sich der TCP-Scan vollständig deaktivieren (z. B. um Target-Auflösung und Denylist zu testen, ohne das Netz tatsächlich zu berühren). Ist der Wert `false`, werden keine Verbindungen aufgebaut; alle Hosts gelten als nicht responsive.
 
 ## Reverse DNS
 
 Für Hosts mit gefundenen offenen Ports kann ein PTR-/Reverse-DNS-Lookup durchgeführt werden. Ein fehlender PTR-Eintrag ist kein Scanfehler.
+
+Die Lookups laufen parallel, höchstens 32 gleichzeitig, damit der lokale Resolver nicht überlastet wird.
 
 ## Service-Erkennung (Enrichment)
 
@@ -120,7 +176,11 @@ Beispiel:
 ```json
 {
   "schemaVersion": 1,
+  "scanId": "20260905-101500",
+  "configHash": "sha256:3f1c…",
   "network": "192.168.1.0/24",
+  "scanStarted": "2026-09-05T10:15:00Z",
+  "scanFinished": "2026-09-05T10:15:08Z",
   "hosts": {
     "192.168.1.20": {
       "hostname": "server.local",
@@ -151,6 +211,14 @@ Beispiel:
 `details` ist optional und pro Port nur vorhanden, wenn `enrichment.enabled` gesetzt ist und der jeweilige Port zu den oben genannten Kategorien gehört und geantwortet hat.
 
 Nur Hosts mit gefundenen offenen Ports erscheinen im aktuellen MVP als responsive Hosts.
+
+Scan-Metadaten:
+
+- `scanId` – Startzeit des Laufs (UTC, `JJJJMMTT-hhmmss`); alle Netze eines Laufs tragen dieselbe ID.
+- `configHash` – SHA-256 über die ergebnisrelevanten Einstellungen: Targets, aufgelöste Portliste, Port-Timeout, Hostname- und Enrichment-Einstellungen. Ausgabeverzeichnis, `prettyPrint` und Parallelität fließen nicht ein, weil sie das Ergebnis nicht verändern.
+- `scanStarted` / `scanFinished` – Beginn und Ende dieses `/24` (RFC 3339, UTC).
+
+Damit lässt sich später erkennen, ob ein Netz bereits vollständig mit derselben Konfiguration gescannt wurde (Grundlage für Resume und Scan-Vergleich). Ältere Ergebnisdateien ohne diese Felder bleiben gültig; alle Leser behandeln sie als optional.
 
 ## CSV Export
 
@@ -206,6 +274,10 @@ CONFIG=test.json RESULTS=test-results EXPORT=test-export ./netcrawl all
 NetCrawl/
 ├── .env.example
 ├── .gitignore
+├── .github/
+│   └── workflows/
+│       └── ci.yml     # gofmt, go vet, go test -race, build
+├── Makefile
 ├── README.md
 ├── go.mod
 ├── netcrawl
@@ -219,9 +291,12 @@ NetCrawl/
 │   └── result2md/
 │       └── main.go
 ├── internal/
-│   ├── config/
+│   ├── config/      # Laden + Prüfen von config.json
 │   ├── denylist/
+│   ├── engine/      # Plan (/24-Jobs) und Scan-Ablauf
+│   ├── envconfig/
 │   ├── iprange/
+│   ├── ports/       # Presets, Einzelports, Portbereiche
 │   ├── result/
 │   └── scanner/
 │       ├── tcp/

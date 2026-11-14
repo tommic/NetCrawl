@@ -83,9 +83,27 @@ func FormatDetails(details map[int]PortInfo, sep string) string {
 	return strings.Join(lines, sep)
 }
 
+// SchemaVersion is the current result file format. Version 1 files written
+// before scan metadata existed simply lack scanId/configHash/scanStarted/
+// scanFinished; all readers treat those fields as optional.
+const SchemaVersion = 1
+
+// TimeFormat is used for scanStarted/scanFinished (RFC 3339, UTC).
+const TimeFormat = "2006-01-02T15:04:05Z07:00"
+
+// NetworkResult is the scan result of one /24 work unit.
+//
+// ScanID identifies the run that produced it, ConfigHash fingerprints the
+// scan-relevant configuration. Together with the timestamps they allow a
+// later resume to tell whether a network was already fully scanned with
+// the same settings.
 type NetworkResult struct {
 	SchemaVersion int             `json:"schemaVersion"`
+	ScanID        string          `json:"scanId,omitempty"`
+	ConfigHash    string          `json:"configHash,omitempty"`
 	Network       string          `json:"network"`
+	ScanStarted   string          `json:"scanStarted,omitempty"`
+	ScanFinished  string          `json:"scanFinished,omitempty"`
 	Hosts         map[string]Host `json:"hosts"`
 	Statistics    Statistics      `json:"statistics"`
 }

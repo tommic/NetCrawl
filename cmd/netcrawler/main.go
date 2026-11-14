@@ -2,27 +2,35 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
-	"net"
-	"net/netip"
-	"sort"
-	"strings"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"netcrawler/internal/config"
-	"netcrawler/internal/denylist"
+	"netcrawler/internal/engine"
 	"netcrawler/internal/envconfig"
-	"netcrawler/internal/iprange"
 	"netcrawler/internal/result"
-	"netcrawler/internal/scanner/probe"
-	"netcrawler/internal/scanner/tcp"
+)
+
+// Exit codes.
+const (
+	exitOK          = 0
+	exitError       = 1
+	exitInterrupted = 130
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	if err := envconfig.Load(".env"); err != nil {
-		log.Fatalf("load .env: %v", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] load .env: %v\n", err)
+		return exitError
 	}
 	configFile := flag.String("config", envconfig.Get("CONFIG", "config.json"), "Path to crawler configuration")
 	flag.Parse()
@@ -30,119 +38,63 @@ func main() {
 	fmt.Printf("[INFO] Loading config: %s\n", *configFile)
 	cfg, err := config.Load(*configFile)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
+		return exitError
 	}
 
-	deny, err := denylist.New(cfg.Targets.Deny)
+	eng, err := engine.New(cfg, time.Now())
 	if err != nil {
-		log.Fatalf("denylist: %v", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
+		return exitError
 	}
+	eng.Logf = func(format string, args ...any) { fmt.Printf(format+"\n", args...) }
 
-	jobs := map[string][]netip.Addr{}
-	seen := map[string]bool{}
-	denied := map[string]int{}
-
-	for _, target := range cfg.Targets.Include {
-		r, err := iprange.Parse(target)
-		if err != nil {
-			log.Fatalf("target %q: %v", target, err)
-		}
-		for _, a := range iprange.Addresses(r) {
-			key := a.String()
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			p := netip.PrefixFrom(a, 24).Masked().String()
-			if deny.Contains(a) {
-				denied[p]++
-				continue
-			}
-			jobs[p] = append(jobs[p], a)
-		}
+	plan, err := engine.BuildPlan(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
+		return exitError
 	}
-
-	networks := make([]string, 0, len(jobs))
-	for n := range jobs {
-		networks = append(networks, n)
+	for _, j := range plan.FullyDenied {
+		fmt.Printf("[INFO] Network %s fully denied (%d address(es)), skipping\n", j.Network, j.Denied)
 	}
-	sort.Slice(networks, func(i, j int) bool { return result.CompareNetworks(networks[i], networks[j]) < 0 })
-
-	fullyDenied := make([]string, 0)
-	for n := range denied {
-		if _, ok := jobs[n]; !ok {
-			fullyDenied = append(fullyDenied, n)
-		}
-	}
-	sort.Slice(fullyDenied, func(i, j int) bool { return result.CompareNetworks(fullyDenied[i], fullyDenied[j]) < 0 })
-	for _, n := range fullyDenied {
-		fmt.Printf("[INFO] Network %s fully denied (%d address(es)), skipping\n", n, denied[n])
-	}
-
-	ports := tcp.Ports(cfg.Ports.Preset, cfg.Ports.Custom)
-	fmt.Printf("[INFO] Generated %d network job(s), %d port(s)\n", len(networks), len(ports))
+	fmt.Printf("[INFO] Scan %s, config %s\n", eng.ScanID(), eng.ConfigHash())
+	fmt.Printf("[INFO] Generated %d network job(s), %d target(s), %d port(s)\n", len(plan.Jobs), plan.TotalTargets(), len(eng.Ports()))
 	if !cfg.Ports.Enabled {
 		fmt.Println("[INFO] Port scanning disabled via config (ports.enabled=false); no hosts will be probed")
 	}
 
-	for _, network := range networks {
-		addresses := jobs[network]
-		fmt.Printf("[INFO] Scanning %s (%d target(s))\n", network, len(addresses))
-		start := time.Now()
-		found := map[string][]int{}
-		if cfg.Ports.Enabled {
-			found = tcp.Scan(context.Background(), addresses, ports, time.Duration(cfg.Ports.TimeoutMs)*time.Millisecond, cfg.Performance.MaxConcurrentConnections)
+	// First Ctrl+C/SIGTERM: finish the current /24, write it, then stop.
+	// Second one: abort immediately; the unfinished /24 is not written.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		if _, ok := <-signals; !ok {
+			return
 		}
+		fmt.Fprintln(os.Stderr, "[WARN] Interrupt received: finishing current network, press Ctrl+C again to abort immediately")
+		eng.RequestStop()
+		if _, ok := <-signals; !ok {
+			return
+		}
+		fmt.Fprintln(os.Stderr, "[WARN] Second interrupt: aborting, current network is not written")
+		cancel()
+	}()
 
-		var details map[string]map[int]probe.Info
-		if cfg.Enrichment.Enabled {
-			details = probe.Enrich(context.Background(), found, time.Duration(cfg.Enrichment.TimeoutMs)*time.Millisecond, cfg.Performance.MaxConcurrentConnections)
-		}
-
-		hosts := map[string]result.Host{}
-		openCount := 0
-		for ip, ps := range found {
-			h := result.Host{Ports: ps}
-			if cfg.Hostname.Enabled && cfg.Hostname.ReverseDNS {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Hostname.TimeoutMs)*time.Millisecond)
-				names, err := net.DefaultResolver.LookupAddr(ctx, ip)
-				cancel()
-				if err == nil && len(names) > 0 {
-					h.Hostname = strings.TrimSuffix(names[0], ".")
-				}
-			}
-			if info, ok := details[ip]; ok {
-				h.Details = make(map[int]result.PortInfo, len(info))
-				for port, d := range info {
-					h.Details[port] = result.PortInfo{
-						Banner:       d.Banner,
-						HTTPTitle:    d.HTTPTitle,
-						HTTPServer:   d.HTTPServer,
-						TLSSubject:   d.TLSSubject,
-						TLSIssuer:    d.TLSIssuer,
-						TLSNotAfter:  d.TLSNotAfter,
-						SSHKeyType:   d.SSHKeyType,
-						SSHKeyFinger: d.SSHKeyFinger,
-					}
-				}
-			}
-			hosts[ip] = h
-			openCount += len(ps)
-			fmt.Printf("[FOUND] %s ports=%v hostname=%s\n", ip, ps, h.Hostname)
-		}
-
-		r := result.NetworkResult{
-			SchemaVersion: 1,
-			Network:       network,
-			Hosts:         hosts,
-			Statistics: result.Statistics{
-				Scanned: len(addresses), Denied: denied[network],
-				Responsive: len(hosts), OpenPorts: openCount,
-			},
-		}
-		if err := result.Write(cfg.Output.Directory, r, cfg.Output.PrettyPrint); err != nil {
-			log.Fatalf("write result: %v", err)
-		}
-		fmt.Printf("[INFO] %s completed in %s\n", network, time.Since(start).Round(time.Millisecond))
+	err = eng.Run(ctx, plan, func(r result.NetworkResult) error {
+		return result.Write(cfg.Output.Directory, r, cfg.Output.PrettyPrint)
+	})
+	switch {
+	case err == nil:
+		fmt.Println("[INFO] Scan finished")
+		return exitOK
+	case errors.Is(err, engine.ErrStopped), errors.Is(err, context.Canceled):
+		fmt.Fprintf(os.Stderr, "[WARN] Scan interrupted: %v\n", err)
+		return exitInterrupted
+	default:
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
+		return exitError
 	}
 }
