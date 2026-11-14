@@ -22,12 +22,31 @@ port() { grep '^NETCRAWL_PORT=' "$ENVFILE" | cut -d= -f2; }
 target_port() { grep '^NETCRAWL_TARGET_PORT=' "$ENVFILE" | cut -d= -f2; }
 rand() { head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24; }
 
+# healthy checks the server from the host. --noproxy: a configured
+# http_proxy must not intercept requests to 127.0.0.1.
+healthy() { curl -sf --noproxy '*' --max-time 2 "http://127.0.0.1:$(port)/healthz" >/dev/null 2>&1; }
+
+diagnose() {
+  echo >&2
+  echo "Server is not reachable on http://127.0.0.1:$(port)." >&2
+  echo "--- container state" >&2
+  compose ps -a >&2 || true
+  echo "--- last server log lines" >&2
+  compose logs --tail 40 server >&2 || true
+  echo "--- what is listening on port $(port)" >&2
+  (command -v ss >/dev/null && ss -ltnp 2>/dev/null | grep -E ":$(port)\b") >&2 || echo "(ss not available or nothing found)" >&2
+  echo >&2
+  echo "Please send this output. To retry: ./testenv.sh down && ./testenv.sh up" >&2
+}
+
 need_env() {
   [[ -f $ENVFILE ]] || { echo "Not set up yet, run: ./testenv.sh up" >&2; exit 1; }
 }
 
 cmd_up() {
   command -v docker >/dev/null || { echo "docker is required" >&2; exit 1; }
+  command -v curl >/dev/null || { echo "curl is required (e.g. apt install curl)" >&2; exit 1; }
+  docker compose version >/dev/null 2>&1 || { echo "docker compose (v2) is required" >&2; exit 1; }
   mkdir -p "$DATA"
   chmod 700 "$DATA"
   if [[ ! -f $ENVFILE ]]; then
@@ -44,11 +63,12 @@ cmd_up() {
   compose up -d --build db server target
 
   echo -n "==> Waiting for the server "
-  for _ in $(seq 1 60); do
-    if curl -sf "http://127.0.0.1:$(port)/healthz" >/dev/null; then echo " ok"; break; fi
+  for _ in $(seq 1 90); do
+    if healthy; then echo " ok"; break; fi
+    if [[ $(compose ps -a --format '{{.State}}' server 2>/dev/null) == exited ]]; then break; fi
     echo -n "."; sleep 1
   done
-  curl -sf "http://127.0.0.1:$(port)/healthz" >/dev/null || { echo; echo "Server did not start, see: ./testenv.sh logs" >&2; exit 1; }
+  healthy || { diagnose; exit 1; }
 
   if [[ ! -f $DATA/admin-password.txt ]]; then
     echo "==> Setting the admin password"
