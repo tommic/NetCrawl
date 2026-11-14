@@ -1,44 +1,28 @@
+// Package tcp implements a parallel TCP connect scan. It needs no raw
+// sockets and normally no root privileges.
 package tcp
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
 
-var presets = map[string][]int{
-	"tiny":     {22, 80, 443},
-	"common":   {21, 22, 25, 53, 80, 110, 143, 443, 445, 993, 995, 3306, 3389, 5432, 6379, 8080, 8443},
-	"web":      {80, 443, 8000, 8080, 8081, 8443, 8888},
-	"database": {1433, 1521, 3306, 5432, 6379, 27017},
-}
-
-func Ports(preset string, custom []int) []int {
-	m := map[int]bool{}
-	for _, p := range presets[preset] {
-		m[p] = true
-	}
-	for _, p := range custom {
-		if p > 0 && p <= 65535 {
-			m[p] = true
-		}
-	}
-	out := make([]int, 0, len(m))
-	for p := range m {
-		out = append(out, p)
-	}
-	sort.Ints(out)
-	return out
-}
-
+// Scan tries every (address, port) pair with at most concurrency parallel
+// connection attempts and returns the open ports per address. If ctx is
+// cancelled, Scan stops early and returns what it found so far; callers
+// should check ctx.Err() to tell a partial result from a complete one.
 func Scan(ctx context.Context, addresses []netip.Addr, ports []int, timeout time.Duration, concurrency int) map[string][]int {
 	type job struct {
 		addr netip.Addr
 		port int
+	}
+	if concurrency < 1 {
+		concurrency = 1
 	}
 	jobs := make(chan job)
 	result := make(map[string][]int)
@@ -51,7 +35,7 @@ func Scan(ctx context.Context, addresses []netip.Addr, ports []int, timeout time
 			defer wg.Done()
 			d := net.Dialer{Timeout: timeout}
 			for j := range jobs {
-				c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(j.addr.String(), fmt.Sprint(j.port)))
+				c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(j.addr.String(), strconv.Itoa(j.port)))
 				if err == nil {
 					c.Close()
 					mu.Lock()
