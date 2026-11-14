@@ -1,0 +1,52 @@
+# Local NetCrawl test environment (loopback pilot). Use ./testenv.sh, not
+# this file directly. Everything listens on 127.0.0.1 only.
+name: netcrawl-test
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: netcrawl
+      POSTGRES_USER: netcrawl
+      POSTGRES_PASSWORD: ${NETCRAWL_DB_PASSWORD:?run ./testenv.sh up}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netcrawl -d netcrawl"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build:
+      context: ../..
+      target: server
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NETCRAWL_DATABASE_URL: postgres://netcrawl:${NETCRAWL_DB_PASSWORD}@db:5432/netcrawl?sslmode=disable
+    ports:
+      - "127.0.0.1:${NETCRAWL_PORT:-8080}:8080"
+
+  # Scan target: a tiny web server on the host's 127.0.0.1.
+  target:
+    image: busybox:1.36
+    network_mode: host
+    command: ["sh", "-c", "mkdir -p /www && echo '<title>NetCrawl Testziel</title>' > /www/index.html && httpd -f -p 127.0.0.1:${NETCRAWL_TARGET_PORT:-18081} -h /www"]
+
+  # The crawler shares the host network so 127.0.0.1 is the host's loopback.
+  agent:
+    build:
+      context: ../..
+      target: agent
+    network_mode: host
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    volumes:
+      - ./data:/data
+    depends_on:
+      - server
+      - target
+
+volumes:
+  db-data:

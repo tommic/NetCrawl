@@ -11,6 +11,24 @@
 | **Server** | Crawler registrieren (ID, serverseitige Allowlist, Hostlimit), Jobs anlegen (Ziele, Ports, TTL), Ergebnisse, Audit-Log |
 | **Crawler** (`agent.json`) | eigene ID, Server-URL, Secret, Abfrageintervall, **lokale Allowlist und Hostlimit** (harte Grenze, die der Server nicht überschreiben kann), Lock-Datei |
 
+## Testumgebung in 1 Minute
+
+Voraussetzung: Docker (Linux, weil der Crawler `network_mode: host` nutzt).
+
+```bash
+cd deploy/testenv
+./testenv.sh up       # Datenbank, Server, Testziel und Crawler starten, Admin + Crawler einrichten
+./testenv.sh scan     # Test-Job anlegen und sofort scannen
+./testenv.sh login    # Zugangsdaten für Browser und API anzeigen
+./testenv.sh down     # alles wieder entfernen (inkl. Datenbank)
+```
+
+Im Browser unter `http://127.0.0.1:8080` anmelden (Benutzer `admin`, Passwort zeigt `./testenv.sh login`). Ports lassen sich mit `NETCRAWL_PORT` und `NETCRAWL_TARGET_PORT` beim ersten `up` ändern. Das Testziel ist ein kleiner Webserver auf `127.0.0.1:18081`.
+
+## Weboberfläche
+
+Unter `/` liefert der Server eine kleine Admin-Oberfläche aus: Anmelden, Jobs anlegen, Jobs mit Ergebnis, Crawler und Audit-Log. Sie nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in einem fremden Frame (z. B. einer Vorschau). Das ist **nur für Testumgebungen** gedacht.
+
 ## 1. Server starten (Proxmox-LXC mit Docker)
 
 ```bash
