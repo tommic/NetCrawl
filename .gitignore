@@ -2,8 +2,16 @@
 /.env
 /configs/*
 !/configs/example.json
+!/configs/agent.example.json
 /results/
 /export/
 /netcrawler
 /result2csv
 /result2md
+/netcrawl-server
+/netcrawl-agent
+/agent.json
+/agent.secret
+/agent.lock
+/e2e-report.md
+/deploy/.env
