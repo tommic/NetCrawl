@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "crawler_id": "pilot-1",
+  "server_url": "http://127.0.0.1:8080",
+  "secret_file": "agent.secret",
+  "polling": {
+    "interval_seconds": 60
+  },
+  "limits": {
+    "allow": ["127.0.0.1/32"],
+    "max_hosts": 1
+  },
+  "lock_file": "agent.lock"
+}

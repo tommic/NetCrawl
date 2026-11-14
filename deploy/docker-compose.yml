@@ -1,0 +1,42 @@
+# netcrawl-server + PostgreSQL for the unprivileged Proxmox LXC.
+#
+#   cd deploy && cp .env.example .env   # set NETCRAWL_DB_PASSWORD
+#   docker compose up -d --build
+#
+# The API is published on 127.0.0.1:8080 only. Put an HTTPS reverse proxy
+# in front of it (or use --tls-cert/--tls-key) before agents on other
+# machines connect: agents refuse plain http to non-loopback servers.
+name: netcrawl
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: netcrawl
+      POSTGRES_USER: netcrawl
+      POSTGRES_PASSWORD: ${NETCRAWL_DB_PASSWORD:?set NETCRAWL_DB_PASSWORD in deploy/.env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netcrawl -d netcrawl"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: ..
+      args:
+        VERSION: ${NETCRAWL_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NETCRAWL_DATABASE_URL: postgres://netcrawl:${NETCRAWL_DB_PASSWORD}@db:5432/netcrawl?sslmode=disable
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  db-data:

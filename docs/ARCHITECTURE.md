@@ -103,6 +103,17 @@ config.Load  →  engine.BuildPlan  →  engine.Run(ctx, plan, sink)
                                          └── sink(result)   → results/*.json
 ```
 
+## Server und Crawler
+
+Neben dem CLI gibt es einen zentralen Server (`netcrawl-server`, PostgreSQL) und Crawler (`netcrawl-agent`). Der Crawler holt zeitlich begrenzte Jobs per signiertem Request ab, prüft sie gegen seine **lokale** Allowlist und sein Hostlimit, scannt mit derselben Engine wie das CLI und meldet das Ergebnis mit HMAC signiert zurück. Details: [`SERVER.md`](SERVER.md), [`PROTOCOL.md`](PROTOCOL.md), Abnahme: [`E2E-ABNAHME.md`](E2E-ABNAHME.md).
+
+```text
+netcrawl-server ──(Job: Ziele, Ports, Ablauf, Result-Token)──► netcrawl-agent
+       ▲                                                          │ lokale Prüfung
+       │                                                          ▼
+   PostgreSQL ◄──(Ergebnis, HMAC mit Result-Token, einmalig)── engine.Run
+```
+
 ## Abbruch (Strg+C)
 
 - **Erstes** Strg+C bzw. `SIGTERM`: Das gerade laufende `/24` wird noch fertig gescannt und geschrieben, danach endet der Lauf. Weitere Netze werden nicht mehr begonnen.
@@ -276,14 +287,19 @@ NetCrawl/
 ├── .gitignore
 ├── .github/
 │   └── workflows/
-│       └── ci.yml     # gofmt, go vet, go test -race, build
+│       └── ci.yml     # gofmt, vet, Tests (mit PostgreSQL), E2E-Beleg, build
 ├── Makefile
 ├── README.md
 ├── go.mod
 ├── netcrawl
 ├── configs/
 │   └── example.json
+├── Dockerfile         # Image für netcrawl-server
+├── deploy/
+│   └── docker-compose.yml   # Server + PostgreSQL
 ├── cmd/
+│   ├── netcrawl-agent/      # Crawler
+│   ├── netcrawl-server/     # Server + Admin-Befehle
 │   ├── netcrawler/
 │   │   └── main.go
 │   ├── result2csv/
@@ -291,18 +307,28 @@ NetCrawl/
 │   └── result2md/
 │       └── main.go
 ├── internal/
+│   ├── agent/       # Crawler: Konfiguration, Vorabprüfung, Job-Prüfung
 │   ├── config/      # Laden + Prüfen von config.json
 │   ├── denylist/
+│   ├── e2e/         # Abnahmetests Loopback-Pilot
 │   ├── engine/      # Plan (/24-Jobs) und Scan-Ablauf
 │   ├── envconfig/
 │   ├── iprange/
 │   ├── ports/       # Presets, Einzelports, Portbereiche
+│   ├── protocol/    # Job-/Ergebnisformat, HMAC-Signatur
 │   ├── result/
+│   ├── scope/       # Allowlist, Hostlimit, Pilot-Beschränkung
+│   ├── server/      # HTTP-API (Crawler + Admin)
+│   ├── store/       # Datenhaltung: pgstore (PostgreSQL), memstore (Tests)
+│   ├── version/
 │   └── scanner/
 │       ├── tcp/
 │       └── probe/
 ├── docs/
-│   └── ARCHITECTURE.md
+│   ├── ARCHITECTURE.md
+│   ├── E2E-ABNAHME.md
+│   ├── PROTOCOL.md
+│   └── SERVER.md
 ├── results/       # generiert, nicht versioniert
 └── export/        # generiert, nicht versioniert
 ```

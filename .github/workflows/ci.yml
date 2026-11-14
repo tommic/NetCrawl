@@ -11,6 +11,23 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: netcrawl_test
+          POSTGRES_USER: netcrawl
+          POSTGRES_PASSWORD: netcrawl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U netcrawl -d netcrawl_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # Throwaway CI database; the store and E2E tests wipe it.
+      NETCRAWL_TEST_DATABASE_URL: postgres://netcrawl:netcrawl@localhost:5432/netcrawl_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -30,9 +47,19 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      # Tests only open connections to 127.0.0.1 listeners they start themselves.
+      # Tests only open connections to 127.0.0.1 listeners they start
+      # themselves, plus the PostgreSQL service. -p 1: the store and E2E
+      # tests share the database.
       - name: go test
-        run: go test -race ./...
+        run: go test -race -p 1 ./...
+
+      - name: E2E acceptance report (loopback pilot)
+        run: make e2e VERSION=${GITHUB_SHA::12}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: e2e-report.md
 
       - name: build
         run: make build

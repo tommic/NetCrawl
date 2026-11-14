@@ -54,6 +54,10 @@ type Engine struct {
 	Now func() time.Time
 	// LookupAddr resolves PTR records. Replaceable in tests.
 	LookupAddr func(ctx context.Context, addr string) ([]string, error)
+	// Dial opens the port scan connections; nil uses net.Dialer. The
+	// agent uses it to record every connection attempt as evidence.
+	// Service enrichment (probe) always uses net.Dialer.
+	Dial tcp.DialFunc
 }
 
 // New prepares an engine for a validated config. started is the run's
@@ -152,7 +156,7 @@ func (e *Engine) ScanNetwork(ctx context.Context, network netip.Prefix, addresse
 
 	found := map[string][]int{}
 	if cfg.Ports.Enabled && len(e.ports) > 0 {
-		found = tcp.Scan(ctx, addresses, e.ports, ms(cfg.Ports.TimeoutMs), cfg.Performance.MaxConcurrentConnections)
+		found = tcp.ScanWithDialer(ctx, e.Dial, addresses, e.ports, ms(cfg.Ports.TimeoutMs), cfg.Performance.MaxConcurrentConnections)
 	}
 	if err := ctx.Err(); err != nil {
 		return result.NetworkResult{}, err
