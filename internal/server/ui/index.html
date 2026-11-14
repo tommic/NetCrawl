@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetCrawl</title>
+<link rel="stylesheet" href="/ui/style.css">
+<script src="/ui/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>NetCrawl</h1>
+  <span class="pilot">Loopback-Pilot</span>
+  <span id="who" hidden></span>
+  <button id="logout" class="ghost" hidden>Abmelden</button>
+</header>
+
+<main>
+  <section id="login-view" hidden>
+    <form id="login-form" class="card narrow">
+      <h2>Anmelden</h2>
+      <label>Benutzer <input name="username" autocomplete="username" value="admin" required></label>
+      <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Anmelden</button>
+      <p id="login-error" class="error" hidden></p>
+    </form>
+  </section>
+
+  <section id="app-view" hidden>
+    <div class="card">
+      <h2>Neuer Job</h2>
+      <form id="job-form" class="row">
+        <label>Crawler <select name="crawler_id" required></select></label>
+        <label>Ziel <input name="target" value="127.0.0.1/32" required></label>
+        <label>Ports <input name="ports" value="22,80,443,18081,18082" required></label>
+        <label>Gültig (Min.) <input name="ttl" type="number" min="1" max="60" value="5" required></label>
+        <button type="submit">Job anlegen</button>
+      </form>
+      <p id="job-msg" hidden></p>
+    </div>
+
+    <div class="card">
+      <div class="title-row"><h2>Jobs</h2><button id="refresh" class="ghost">Aktualisieren</button></div>
+      <table>
+        <thead><tr><th>Erstellt</th><th>Crawler</th><th>Status</th><th>Ziele</th><th>Ports</th><th>Läuft ab</th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+      <p class="hint">Zeile anklicken für das Ergebnis.</p>
+      <div id="job-detail" hidden></div>
+    </div>
+
+    <div class="card">
+      <h2>Crawler</h2>
+      <table>
+        <thead><tr><th>ID</th><th>Allowlist</th><th>Max. Hosts</th><th>Zuletzt gesehen</th></tr></thead>
+        <tbody id="crawlers"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Audit-Log</h2>
+      <table>
+        <thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Details</th></tr></thead>
+        <tbody id="audit"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

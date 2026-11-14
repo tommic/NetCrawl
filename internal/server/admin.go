@@ -157,7 +157,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	_ = s.st.Audit(ctx, a.Username, "admin.login", map[string]string{"remote": ip})
 	http.SetCookie(w, &http.Cookie{
 		Name: SessionCookie, Value: token, Path: "/", Expires: expires,
-		HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode,
+		HttpOnly: true, Secure: s.secure, SameSite: s.sameSite(),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC()})
 }
@@ -166,7 +166,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if token, _ := sessionToken(r); token != "" {
 		_ = s.st.DeleteSession(r.Context(), hashToken(token))
 	}
-	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.secure, SameSite: s.sameSite()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
