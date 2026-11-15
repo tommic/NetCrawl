@@ -15,3 +15,5 @@
 /agent.lock
 /e2e-report.md
 /deploy/.env
+/deploy/testenv/data/
+/deploy/testenv/.env

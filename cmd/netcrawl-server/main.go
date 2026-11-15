@@ -39,7 +39,7 @@ import (
 const usage = `netcrawl-server ` + "%s" + `
 
 Usage:
-  netcrawl-server serve [--listen 127.0.0.1:8080] [--tls-cert FILE --tls-key FILE] [--secure-cookies] [--no-migrate]
+  netcrawl-server serve [--listen 127.0.0.1:8080] [--tls-cert FILE --tls-key FILE] [--secure-cookies] [--no-migrate] [--embeddable]
   netcrawl-server migrate
   netcrawl-server admin set-password [--username admin]      (reads the password from stdin)
   netcrawl-server crawler add --id ID --allow CIDR[,CIDR] --max-hosts N
@@ -95,6 +95,7 @@ func run(args []string) error {
 		tlsKey := fs.String("tls-key", "", "TLS key file")
 		secureCookies := fs.Bool("secure-cookies", false, "set the Secure flag on session cookies (implied by --tls-cert; use behind an HTTPS proxy)")
 		noMigrate := fs.Bool("no-migrate", false, "do not apply database migrations at start")
+		embeddable := fs.Bool("embeddable", false, "TEST ONLY: allow the UI inside frames of other sites (cookie SameSite=None; Secure, requires HTTPS in front)")
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
@@ -111,7 +112,7 @@ func run(args []string) error {
 				return err
 			}
 		}
-		return serve(ctx, st, *listen, *tlsCert, *tlsKey, *secureCookies || *tlsCert != "")
+		return serve(ctx, st, *listen, *tlsCert, *tlsKey, server.Options{SecureCookies: *secureCookies || *tlsCert != "", Embeddable: *embeddable})
 
 	case "migrate ":
 		if err := fs.Parse(rest); err != nil {
@@ -293,9 +294,13 @@ func migrate(ctx context.Context, st *pgstore.Store) error {
 	return nil
 }
 
-func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string, secureCookies bool) error {
+func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string, opts server.Options) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := server.New(st, server.Options{Logger: logger, SecureCookies: secureCookies})
+	opts.Logger = logger
+	if opts.Embeddable {
+		logger.Warn("--embeddable is set: UI may be framed by other sites; use only for test environments")
+	}
+	srv := server.New(st, opts)
 	httpServer := &http.Server{
 		Addr:              listen,
 		Handler:           srv.Handler(),

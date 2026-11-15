@@ -34,6 +34,11 @@ type Options struct {
 	SecureCookies bool
 	// SessionTTL is the admin session lifetime (default 12h).
 	SessionTTL time.Duration
+	// Embeddable allows the UI to be shown inside a frame on another site
+	// (e.g. a development preview pane): it drops the frame restrictions
+	// and sends the session cookie with SameSite=None; Secure. Only for
+	// test environments behind HTTPS.
+	Embeddable bool
 }
 
 // Server serves the netcrawl API.
@@ -42,13 +47,14 @@ type Server struct {
 	now     func() time.Time
 	log     *slog.Logger
 	secure  bool
+	embed   bool
 	sessTTL time.Duration
 	limiter *loginLimiter
 }
 
 // New returns a server backed by st.
 func New(st store.Store, opts Options) *Server {
-	s := &Server{st: st, now: opts.Now, log: opts.Logger, secure: opts.SecureCookies, sessTTL: opts.SessionTTL}
+	s := &Server{st: st, now: opts.Now, log: opts.Logger, secure: opts.SecureCookies || opts.Embeddable, embed: opts.Embeddable, sessTTL: opts.SessionTTL}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -82,18 +88,34 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/admin/jobs/{id}", s.admin(s.handleGetJob))
 	mux.Handle("GET /api/v1/admin/audit", s.admin(s.handleAudit))
 
-	return securityHeaders(mux)
+	s.registerUI(mux)
+	return s.securityHeaders(mux)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	csp := contentSecurityPolicy + "; frame-ancestors 'none'"
+	if s.embed {
+		csp = contentSecurityPolicy
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Cache-Control", "no-store")
-		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", csp)
+		if !s.embed {
+			h.Set("X-Frame-Options", "DENY")
+		}
 		h.Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sameSite is Strict normally and None for embeddable test setups.
+func (s *Server) sameSite() http.SameSite {
+	if s.embed {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteStrictMode
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

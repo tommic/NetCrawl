@@ -1,0 +1,33 @@
+:root { --bg: #f6f7f9; --fg: #1d2330; --muted: #667085; --card: #fff; --line: #e4e7ec; --accent: #2457c5; --ok: #157f3b; --warn: #b54708; --bad: #b42318; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111418; --fg: #e6e8eb; --muted: #98a2b3; --card: #1a1f26; --line: #2b323c; --accent: #6c9bff; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+header h1 { font-size: 18px; margin: 0; }
+.pilot { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--line); color: var(--muted); }
+#who { margin-left: auto; color: var(--muted); }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; overflow-x: auto; }
+.narrow { max-width: 360px; margin: 48px auto; display: grid; gap: 12px; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.title-row { display: flex; justify-content: space-between; align-items: center; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); min-width: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+button { font: inherit; padding: 7px 14px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--bg); }
+.status-completed { color: var(--ok); }
+.status-delivered, .status-pending { color: var(--warn); }
+.status-expired { color: var(--bad); }
+.error { color: var(--bad); margin: 0; }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+code, pre { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--bg); padding: 12px; border-radius: 6px; overflow-x: auto; }
+#job-detail { margin-top: 12px; }
