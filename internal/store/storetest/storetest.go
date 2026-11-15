@@ -3,6 +3,7 @@
 package storetest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -28,6 +29,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"Networks":       testNetworks,
 		"NetworkJobs":    testNetworkJobs,
 		"Inventory":      testInventory,
+		"Enrollments":    testEnrollments,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, newStore(t)) })
@@ -500,4 +502,59 @@ func testInventory(t *testing.T, s store.Store) {
 	if ev, _ := s.ListEvents(ctx, store.EventFilter{IncludeBaseline: true, Limit: 1}); len(ev) != 1 || ev[0].NetworkID != m.ID {
 		t.Errorf("limit: %+v", ev)
 	}
+}
+
+func testEnrollments(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	c := addCrawler(t, s, "lab-1")
+	hash := func(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
+
+	wantErr(t, s.CreateEnrollment(ctx, store.Enrollment{TokenHash: hash(9), CrawlerID: "nope", CreatedAt: t0, ExpiresAt: t0.Add(time.Hour)}), store.ErrNotFound)
+
+	first := store.Enrollment{TokenHash: hash(1), CrawlerID: c.ID, ReverseDNS: true, CreatedAt: t0, ExpiresAt: t0.Add(30 * time.Minute)}
+	mustNoErr(t, s.CreateEnrollment(ctx, first))
+	e, err := s.Enrollment(ctx, hash(1), t0.Add(time.Minute))
+	mustNoErr(t, err)
+	if e.CrawlerID != c.ID || !e.ReverseDNS || e.UsedAt != nil {
+		t.Fatalf("enrollment = %+v", e)
+	}
+	_, err = s.Enrollment(ctx, hash(1), t0.Add(30*time.Minute))
+	wantErr(t, err, store.ErrNotFound) // expired
+
+	// A new code replaces the unused one.
+	mustNoErr(t, s.CreateEnrollment(ctx, store.Enrollment{TokenHash: hash(2), CrawlerID: c.ID, CreatedAt: t0, ExpiresAt: t0.Add(30 * time.Minute)}))
+	_, err = s.Enrollment(ctx, hash(1), t0.Add(time.Minute))
+	wantErr(t, err, store.ErrNotFound)
+
+	newSecret := bytes.Repeat([]byte{7}, 32)
+	_, _, err = s.RedeemEnrollment(ctx, hash(2), newSecret, t0.Add(31*time.Minute))
+	wantErr(t, err, store.ErrNotFound) // expired
+	got, e2, err := s.RedeemEnrollment(ctx, hash(2), newSecret, t0.Add(time.Minute))
+	mustNoErr(t, err)
+	if !bytes.Equal(got.Secret, newSecret) || e2.UsedAt == nil || got.ID != c.ID {
+		t.Fatalf("redeem = %+v, %+v", got, e2)
+	}
+	stored, err := s.Crawler(ctx, c.ID)
+	mustNoErr(t, err)
+	if !bytes.Equal(stored.Secret, newSecret) {
+		t.Fatal("secret not rotated")
+	}
+	_, _, err = s.RedeemEnrollment(ctx, hash(2), hash(8), t0.Add(2*time.Minute))
+	wantErr(t, err, store.ErrNotFound) // used once
+	_, err = s.Enrollment(ctx, hash(2), t0.Add(2*time.Minute))
+	wantErr(t, err, store.ErrNotFound)
+
+	wantErr(t, s.SetCrawlerEnabled(ctx, "nope", false), store.ErrNotFound)
+	mustNoErr(t, s.SetCrawlerEnabled(ctx, c.ID, false))
+	if got, _ := s.Crawler(ctx, c.ID); got.Enabled {
+		t.Fatal("crawler still enabled")
+	}
+	mustNoErr(t, s.SetCrawlerEnabled(ctx, c.ID, true))
+
+	// Disabled crawlers cannot enroll.
+	d := store.Crawler{ID: "off", Secret: hash(3), Allow: []string{"127.0.0.1/32"}, MaxHosts: 1, Enabled: false, CreatedAt: t0}
+	mustNoErr(t, s.CreateCrawler(ctx, d))
+	mustNoErr(t, s.CreateEnrollment(ctx, store.Enrollment{TokenHash: hash(4), CrawlerID: "off", CreatedAt: t0, ExpiresAt: t0.Add(time.Hour)}))
+	_, _, err = s.RedeemEnrollment(ctx, hash(4), newSecret, t0.Add(time.Minute))
+	wantErr(t, err, store.ErrForbidden)
 }

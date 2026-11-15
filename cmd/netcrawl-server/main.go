@@ -22,8 +22,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,17 +36,22 @@ import (
 	"netcrawler/internal/server"
 	"netcrawler/internal/store"
 	"netcrawler/internal/store/pgstore"
+	"netcrawler/internal/tlspin"
 	"netcrawler/internal/version"
 )
 
 const usage = `netcrawl-server ` + "%s" + `
 
 Usage:
-  netcrawl-server serve [--listen 127.0.0.1:8080] [--tls-cert FILE --tls-key FILE] [--secure-cookies] [--no-migrate] [--embeddable]
+  netcrawl-server serve [--listen 127.0.0.1:8080] [--tls-cert FILE --tls-key FILE | --tls-self-signed DIR]
+                        [--public-url URL] [--public-tls-pin auto|none|sha256//..] [--agent-dir DIR]
+                        [--secure-cookies] [--no-migrate] [--embeddable]
   netcrawl-server migrate
   netcrawl-server admin set-password [--username admin]      (reads the password from stdin)
   netcrawl-server crawler add --id ID --allow CIDR[,CIDR] --max-hosts N
   netcrawl-server crawler list
+  netcrawl-server crawler install --id ID [--reverse-dns]   (one-time install command, needs --public-url)
+  netcrawl-server crawler disable|enable --id ID
   netcrawl-server job create --crawler ID --target T[,T] --ports P[,P] [--ttl 5m] [--timeout-ms 500] [--max-hosts N]
   netcrawl-server job list [--limit 20]
   netcrawl-server job show JOB_ID
@@ -57,6 +64,9 @@ Usage:
   netcrawl-server events [--network N] [--limit 50] [--baseline]
 
 Every command accepts --database-url (default: $NETCRAWL_DATABASE_URL).
+TLS and installer flags default to $NETCRAWL_TLS_CERT, $NETCRAWL_TLS_KEY,
+$NETCRAWL_TLS_SELF_SIGNED_DIR, $NETCRAWL_PUBLIC_URL, $NETCRAWL_PUBLIC_TLS_PIN
+and $NETCRAWL_AGENT_DIR.
 `
 
 func main() {
@@ -99,8 +109,7 @@ func run(args []string) error {
 	switch cmd + " " + sub {
 	case "serve ":
 		listen := fs.String("listen", "127.0.0.1:8080", "listen address")
-		tlsCert := fs.String("tls-cert", "", "TLS certificate file (enables HTTPS)")
-		tlsKey := fs.String("tls-key", "", "TLS key file")
+		tf := addTLSFlags(fs)
 		secureCookies := fs.Bool("secure-cookies", false, "set the Secure flag on session cookies (implied by --tls-cert; use behind an HTTPS proxy)")
 		noMigrate := fs.Bool("no-migrate", false, "do not apply database migrations at start")
 		embeddable := fs.Bool("embeddable", false, "TEST ONLY: allow the UI inside frames of other sites (cookie SameSite=None; Secure, requires HTTPS in front)")
@@ -109,8 +118,9 @@ func run(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		if (*tlsCert == "") != (*tlsKey == "") {
-			return errors.New("--tls-cert and --tls-key must be given together")
+		tlsCert, tlsKey, install, err := tf.resolve()
+		if err != nil {
+			return err
 		}
 		st, err := open()
 		if err != nil {
@@ -122,7 +132,7 @@ func run(args []string) error {
 				return err
 			}
 		}
-		opts := server.Options{SecureCookies: *secureCookies || *tlsCert != "", Embeddable: *embeddable}
+		opts := server.Options{SecureCookies: *secureCookies || tlsCert != "", Embeddable: *embeddable, Install: install}
 		if *eventLogDir != "" {
 			w, err := eventlog.New(*eventLogDir, eventlog.DefaultRetention)
 			if err != nil {
@@ -130,7 +140,7 @@ func run(args []string) error {
 			}
 			opts.EventLog = w
 		}
-		return serve(ctx, st, *listen, *tlsCert, *tlsKey, opts, *schedInterval)
+		return serve(ctx, st, *listen, tlsCert, tlsKey, opts, *schedInterval)
 
 	case "migrate ":
 		if err := fs.Parse(rest); err != nil {
@@ -188,6 +198,47 @@ func run(args []string) error {
 		fmt.Printf("Crawler %q created (allow %v, max hosts %d).\n\n", c.ID, c.Allow, c.MaxHosts)
 		fmt.Println("Secret (shown only once, store it in the agent's secret_file with mode 600):")
 		fmt.Println(secret)
+		return nil
+
+	case "crawler install":
+		id := fs.String("id", "", "crawler id")
+		reverseDNS := fs.Bool("reverse-dns", false, "allow the crawler PTR lookups (hostnames)")
+		tf := addTLSFlags(fs)
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		_, _, install, err := tf.resolve()
+		if err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		v, err := server.CreateEnrollment(ctx, st, install, "cli", *id, *reverseDNS, time.Now())
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Install command for crawler %q (valid once, until %s):\n\n  %s\n\n", v.CrawlerID, v.ExpiresAt.Local().Format("2006-01-02 15:04"), v.Command)
+		fmt.Printf("Review first:\n\n  %s\n\n", v.DownloadCommand)
+		fmt.Println("Running it replaces the crawler's secret; an installed agent with the old secret stops working.")
+		return nil
+
+	case "crawler disable", "crawler enable":
+		id := fs.String("id", "", "crawler id")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		if err := server.SetCrawlerEnabled(ctx, st, "cli", *id, sub == "enable"); err != nil {
+			return err
+		}
+		fmt.Printf("Crawler %q %sd.\n", *id, sub)
 		return nil
 
 	case "crawler list":
@@ -469,6 +520,14 @@ func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string
 	if opts.Embeddable {
 		logger.Warn("--embeddable is set: UI may be framed by other sites; use only for test environments")
 	}
+	if ic := opts.Install; ic != nil {
+		logger.Info("crawler installer enabled", "public_url", ic.PublicURL, "tls_pin", ic.TLSPin)
+		for _, arch := range server.AgentArchs {
+			if _, err := os.Stat(filepath.Join(ic.AgentDir, "netcrawl-agent-linux-"+arch)); err != nil {
+				logger.Warn("installer: agent binary missing, installs on this architecture will fail", "arch", arch, "dir", ic.AgentDir)
+			}
+		}
+	}
 	srv := server.New(st, opts)
 	httpServer := &http.Server{
 		Addr:              listen,
@@ -497,6 +556,76 @@ func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// tlsFlags are the TLS and installer settings shared by serve and
+// crawler install.
+type tlsFlags struct {
+	cert, key, selfSigned, publicURL, pin, agentDir *string
+}
+
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
+
+func addTLSFlags(fs *flag.FlagSet) *tlsFlags {
+	return &tlsFlags{
+		cert:       fs.String("tls-cert", os.Getenv("NETCRAWL_TLS_CERT"), "TLS certificate file (enables HTTPS)"),
+		key:        fs.String("tls-key", os.Getenv("NETCRAWL_TLS_KEY"), "TLS key file"),
+		selfSigned: fs.String("tls-self-signed", os.Getenv("NETCRAWL_TLS_SELF_SIGNED_DIR"), "enable HTTPS with a self-signed certificate kept in this directory (created on first start)"),
+		publicURL:  fs.String("public-url", os.Getenv("NETCRAWL_PUBLIC_URL"), "URL crawlers use to reach this server, e.g. https://192.168.1.5:8443 (enables the installer)"),
+		pin:        fs.String("public-tls-pin", envOr("NETCRAWL_PUBLIC_TLS_PIN", "auto"), "pin for install commands: auto (pin a self-signed certificate), none, or sha256//..."),
+		agentDir:   fs.String("agent-dir", envOr("NETCRAWL_AGENT_DIR", "/usr/local/share/netcrawl/agent"), "directory with netcrawl-agent-linux-amd64/-arm64 for the installer"),
+	}
+}
+
+// resolve returns the certificate to serve (if any) and the installer
+// configuration (nil without --public-url).
+func (t *tlsFlags) resolve() (certFile, keyFile string, ic *server.InstallConfig, err error) {
+	certFile, keyFile = *t.cert, *t.key
+	if (certFile == "") != (keyFile == "") {
+		return "", "", nil, errors.New("--tls-cert and --tls-key must be given together")
+	}
+	if *t.selfSigned != "" {
+		if certFile != "" {
+			return "", "", nil, errors.New("use either --tls-cert/--tls-key or --tls-self-signed")
+		}
+		var hosts []string
+		if u, err := url.Parse(*t.publicURL); err == nil && u.Hostname() != "" {
+			hosts = append(hosts, u.Hostname())
+		}
+		if certFile, keyFile, err = tlspin.SelfSigned(*t.selfSigned, hosts); err != nil {
+			return "", "", nil, fmt.Errorf("self-signed certificate: %w", err)
+		}
+	}
+	if *t.publicURL == "" {
+		return certFile, keyFile, nil, nil
+	}
+	ic = &server.InstallConfig{PublicURL: *t.publicURL, AgentDir: *t.agentDir}
+	switch p := *t.pin; p {
+	case "none", "":
+	case "auto":
+		if certFile != "" {
+			self, err := tlspin.IsSelfSigned(certFile)
+			if err != nil {
+				return "", "", nil, err
+			}
+			if self {
+				if ic.TLSPin, err = tlspin.PinFromFile(certFile); err != nil {
+					return "", "", nil, err
+				}
+			}
+		}
+	default:
+		ic.TLSPin = p
+	}
+	if err := ic.Validate(); err != nil {
+		return "", "", nil, err
+	}
+	return certFile, keyFile, ic, nil
 }
 
 func fmtTime(t *time.Time) string {

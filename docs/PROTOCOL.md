@@ -130,6 +130,45 @@ Was ein Crawler scannen darf, steht an zwei Stellen (`internal/scope`, `CheckRel
 
 Beide Seiten akzeptieren nur private Bereiche (RFC 1918, Loopback, Link-Local, CGNAT). Der Crawler erlaubt öffentliche Bereiche nur mit `"allow_public_ranges": true`; der Server gar nicht. Hostlimit 1–65.536.
 
+## Installation (Einmal-Code)
+
+Der Admin erzeugt für einen registrierten Crawler einen Einmal-Code (`POST /api/v1/admin/crawlers/{id}/enroll`). Der Code ist ein 32-Byte-Schlüssel in base64url, gilt **30 Minuten** und **einmal**; gespeichert wird nur sein SHA-256. Ein neuer Code für denselben Crawler macht unbenutzte ältere ungültig.
+
+| Methode | Pfad | Zweck |
+|---|---|---|
+| `GET` | `/install/{code}` | Installationsskript (`text/x-shellscript`) mit Server-URL, Pin, Code und SHA-256 der Crawler-Programme. Verbraucht den Code nicht. `404` bei unbekanntem, benutztem oder abgelaufenem Code. |
+| `GET` | `/install/agent/linux-{amd64,arm64}` | Crawler-Programm |
+| `GET` | `/install/uninstall` | Deinstallationsskript |
+| `POST` | `/install/enroll` | Code einlösen (unten) |
+
+```http
+POST /install/enroll
+Content-Type: application/json
+
+{"token": "<Code>", "agent_version": "…"}
+```
+
+Antwort `200`:
+
+```json
+{
+  "crawler_id": "lan-1",
+  "secret": "<neues Crawler-Secret, base64url>",
+  "allow": ["192.168.1.0/24"],
+  "max_hosts": 256,
+  "reverse_dns": true,
+  "interval_seconds": 60
+}
+```
+
+Das Einlösen läuft atomar: Code als benutzt markieren und Crawler-Secret **ersetzen**. Ein bereits installierter Crawler mit dem alten Secret wird damit abgemeldet. Fehler: `404` (Code unbekannt, benutzt oder abgelaufen), `403` (Crawler deaktiviert).
+
+`netcrawl-agent enroll` prüft die Antwort, bevor es etwas schreibt: gültige `crawler_id`, gültiges Secret, Freigabe nur aus privaten Bereichen (`allow_public_ranges` lässt sich über die Installation nicht setzen). Danach schreibt es `agent.json` (die Freigabe steht dann fest) und `agent.secret` (`600`).
+
 ## Transport
 
 Plain HTTP akzeptiert der Crawler nur zu einem Server auf Loopback. Für jeden anderen Server ist HTTPS Pflicht, weil Job-Antworten Result-Tokens enthalten. Der Crawler folgt keinen Redirects.
+
+Bei einem selbstsignierten Server-Zertifikat steht in `agent.json` `"tls_pin": "sha256//<base64>"`: Der Crawler akzeptiert dann nur ein Zertifikat mit genau diesem öffentlichen Schlüssel (SHA-256 der SubjectPublicKeyInfo, dasselbe Format wie `curl --pinnedpubkey`). Name und CA werden nicht geprüft, der Pin ist der Vertrauensanker. `tls_pin` und `ca_file` schließen sich aus.
+
+Ein deaktivierter Crawler erhält auf Job-Abfragen `401`, seine Ergebnisse werden mit `401` abgelehnt.

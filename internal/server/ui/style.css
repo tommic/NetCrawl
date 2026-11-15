@@ -3,6 +3,7 @@
   :root { --bg: #111418; --fg: #e6e8eb; --muted: #98a2b3; --card: #1a1f26; --line: #2b323c; --accent: #6c9bff; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
 header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
 header h1 { font-size: 18px; margin: 0; }
@@ -46,3 +47,6 @@ button.small { padding: 3px 8px; margin: 0 4px 4px 0; font-size: 12px; }
 label.inline { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--fg); }
 .ok { color: var(--ok); }
 .title-row .row { gap: 12px; }
+.install { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.install h3 { font-size: 15px; margin: 0 0 8px; }
+.install pre { white-space: pre-wrap; word-break: break-all; }

@@ -253,3 +253,47 @@ func readDir(dir string) (string, error) {
 	}
 	return b.String(), nil
 }
+
+func TestDisabledCrawlerGetsNothing(t *testing.T) {
+	f := newNetFixture(t)
+	ctx := context.Background()
+	resp := f.do("POST", "/api/v1/admin/networks", "application/json",
+		`{"crawler_id":"lan-1","name":"LAN","targets":["10.0.0.0/24"]}`, withCookie(f.login()))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create network: %d", resp.StatusCode)
+	}
+	if err := f.server.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if resp := f.signedPollFor("lan-1"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("poll: %d", resp.StatusCode)
+	}
+	delivered := f.jobs()[0]
+
+	if err := SetCrawlerEnabled(ctx, f.st, "test", "lan-1", false); err != nil {
+		t.Fatal(err)
+	}
+	// Results of a disabled crawler are rejected, polls fail.
+	if status := postResult(f.fixture, delivered, []byte(`{}`)); status != http.StatusUnauthorized {
+		t.Fatalf("result of disabled crawler: %d", status)
+	}
+	if resp := f.signedPollFor("lan-1"); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("poll of disabled crawler: %d", resp.StatusCode)
+	}
+	// The scheduler creates no new jobs for it.
+	before := len(f.jobs())
+	f.now = f.now.Add(2 * time.Hour)
+	if err := f.server.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.jobs()); n != before {
+		t.Fatalf("scheduler created %d jobs for a disabled crawler", n-before)
+	}
+	// ... and does not fill the audit log with errors about it.
+	audit, _ := f.st.ListAudit(ctx, 50)
+	for _, a := range audit {
+		if a.Action == "scheduler.error" {
+			t.Fatalf("scheduler error for disabled crawler: %s", a.Details)
+		}
+	}
+}

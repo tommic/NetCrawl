@@ -61,26 +61,37 @@ cd deploy/testenv
 
 Das Testnetz umfasst `127.0.0.1`–`127.0.0.4`, `127.0.0.4` steht auf der Deny-Liste. Ausprobieren: auf `127.0.0.1:18082` einen Dienst starten (z. B. `python3 -m http.server 18082 --bind 127.0.0.1`), `./testenv.sh scan` – es erscheint „Port 18082 neu offen“. Dienst beenden, erneut scannen – „Port 18082 nicht mehr offen“.
 
-Im Browser unter `http://127.0.0.1:8080` anmelden. Ports: Server `8080`, PostgreSQL `55432`, Testziel `18081`; änderbar beim ersten `up` mit `NETCRAWL_PORT`, `NETCRAWL_DB_PORT`, `NETCRAWL_TARGET_PORT`. Das Ereignislog liegt in `deploy/testenv/data/events/`.
+Im Browser unter `http://127.0.0.1:8080` anmelden. Unter „Crawler“ lässt sich auch der Installationsbefehl ausprobieren (in der Testumgebung über `http` auf Loopback); er installiert einen echten systemd-Dienst auf dem Rechner, der nur `127.0.0.x` scannen darf. Ports: Server `8080`, PostgreSQL `55432`, Testziel `18081`; änderbar beim ersten `up` mit `NETCRAWL_PORT`, `NETCRAWL_DB_PORT`, `NETCRAWL_TARGET_PORT`. Das Ereignislog liegt in `deploy/testenv/data/events/`.
 
 ## Weboberfläche
 
-Unter `/`: **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung), **Netze** (anlegen, „Erkennung jetzt“, „Portscan jetzt“), **Jobs**, **Crawler** (registrieren, Secret wird einmalig angezeigt) und **Audit-Log**. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
+Unter `/`: **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung), **Netze** (anlegen, „Erkennung jetzt“, „Portscan jetzt“), **Jobs**, **Crawler** (anlegen mit Installationsbefehl, Status online/offline, deaktivieren) und **Audit-Log**. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
 
 ## Einrichtung für ein echtes Netz
 
-### 1. Server starten (Proxmox-LXC mit Docker)
+### 1. Server starten (z. B. Proxmox-LXC mit Docker)
 
 ```bash
 cd deploy
-cp .env.example .env          # NETCRAWL_DB_PASSWORD setzen, z. B. openssl rand -base64 32
-docker compose up -d --build
-curl http://127.0.0.1:8080/healthz
+cp .env.example .env
 ```
 
-- PostgreSQL läuft mit persistentem Volume `db-data`; der Server spielt Migrationen beim Start ein und ist nur auf `127.0.0.1:8080` erreichbar.
-- Ereignislog als JSONL: `serve --event-log-dir /pfad` (eine Datei pro Tag, 180 Tage aufbewahrt).
-- Für Crawler auf anderen Rechnern einen HTTPS-Reverse-Proxy davorsetzen (oder `serve --tls-cert … --tls-key …`). Der Crawler verweigert unverschlüsseltes HTTP zu nicht-lokalen Servern.
+In `.env` setzen:
+
+- `NETCRAWL_DB_PASSWORD`: langes Zufallspasswort, z. B. aus `openssl rand -base64 32`
+- `NETCRAWL_PUBLIC_URL`: wie die Crawler den Server erreichen, z. B. `https://192.168.1.5:8443` (IP des Servers) oder `https://netcrawl.example.org`
+
+```bash
+docker compose up -d --build
+docker compose logs server | tail -3
+```
+
+- Der Server spricht HTTPS auf Port `8443`. Beim ersten Start erzeugt er ein **selbstsigniertes Zertifikat** (gespeichert im Volume `server-data`). Crawler vertrauen genau dessen Schlüssel (Pinning), eine Zertifizierungsstelle ist nicht nötig. Der Browser warnt beim ersten Aufruf einmal.
+- Das Log zeigt `crawler installer enabled` mit dem Fingerprint (`tls_pin`).
+- PostgreSQL läuft mit persistentem Volume `db-data`; Migrationen werden beim Start eingespielt.
+- Nur aus einem Netz erreichbar machen: `NETCRAWL_BIND=192.168.1.5` (Adresse des Servers) in `.env`.
+
+**Mit Domain und eigenem Zertifikat** (z. B. Let's Encrypt): `NETCRAWL_PUBLIC_URL=https://netcrawl.example.org` und das Zertifikat per `--tls-cert`/`--tls-key` statt `--tls-self-signed` übergeben. Ein von einer CA ausgestelltes Zertifikat wird nicht gepinnt, Crawler prüfen es normal. Hinter einem Reverse-Proxy: Server ohne TLS auf `127.0.0.1` lauschen lassen, `--secure-cookies` setzen, `NETCRAWL_PUBLIC_URL` auf die Proxy-Adresse.
 
 ### 2. Admin-Passwort setzen
 
@@ -88,29 +99,39 @@ curl http://127.0.0.1:8080/healthz
 read -rs PW && printf '%s\n' "$PW" | docker compose run --rm -T server admin set-password --username admin; unset PW
 ```
 
-Mindestens 12 Zeichen. Nach 5 Fehlversuchen innerhalb von 15 Minuten wird die IP 15 Minuten gesperrt.
+Mindestens 12 Zeichen. Nach 5 Fehlversuchen innerhalb von 15 Minuten wird die IP 15 Minuten gesperrt. Anmelden unter `https://<Server-IP>:8443`.
 
-### 3. Crawler registrieren
+### 3. Crawler anlegen und installieren
+
+In der Weboberfläche unter **Crawler → Crawler anlegen**: ID (z. B. `lan-1`), Freigabe (z. B. `192.168.1.0/24`), max. Hosts (`256` für ein `/24`), ob Hostnamen abgefragt werden dürfen. Danach zeigt die Oberfläche einen Einzeiler:
+
+```bash
+curl -fsSL -k --pinnedpubkey 'sha256//…' 'https://192.168.1.5:8443/install/…' | sudo sh
+```
+
+Auf dem Crawler-Rechner ausführen (Debian/Ubuntu, Raspberry Pi OS, Proxmox-LXC; mit systemd; amd64 oder arm64). Das Skript:
+
+1. lädt `netcrawl-agent` vom eigenen Server und prüft die Prüfsumme,
+2. legt den Systembenutzer `netcrawl`, `/etc/netcrawl-agent/` und `/var/lib/netcrawl-agent/` an,
+3. löst den Einmal-Code ein: Der Crawler erhält ein **neues** Secret, die Freigabe wird **fest** in die lokale `agent.json` geschrieben,
+4. richtet den abgesicherten Dienst `netcrawl-agent.service` ein und startet ihn.
+
+Nach spätestens einer Minute steht der Crawler in der Oberfläche auf „online“.
+
+- `-k --pinnedpubkey`: curl prüft statt einer CA exakt den Schlüssel des Servers. Ein anderer Server (z. B. ein Angreifer im Netz) wird abgewiesen, bevor Daten fließen.
+- Der Code gilt **einmal** und **30 Minuten**. Ein neuer Code macht den vorherigen ungültig. Wer `curl | sh` nicht mag: In der Oberfläche unter „Skript erst ansehen, dann ausführen“ steht die Variante zum Herunterladen und Prüfen.
+- Die lokale Freigabe kann der Server danach nicht mehr ausweiten. Um sie zu ändern, Crawler neu anlegen und neu installieren.
+- Logs: `journalctl -u netcrawl-agent -f`. Deinstallation: `curl -fsS -k --pinnedpubkey 'sha256//…' https://<Server>:8443/install/uninstall | sudo sh`.
+- In unprivilegierten LXC-Containern ohne „nesting“ kann systemd die Dateisystem-Sandbox nicht einrichten. Das Skript erkennt das und startet den Dienst dann mit reduzierter Absicherung (weiterhin eigener Benutzer, keine Capabilities).
+
+Ohne Weboberfläche:
 
 ```bash
 docker compose run --rm server crawler add --id lan-1 --allow 192.168.1.0/24 --max-hosts 256
+docker compose run --rm server crawler install --id lan-1 --reverse-dns
 ```
 
-Das **Secret wird nur einmal angezeigt**. Auf dem Crawler-Rechner:
-
-```bash
-printf '%s\n' '<SECRET>' > agent.secret && chmod 600 agent.secret
-cp configs/agent.example.json agent.json
-```
-
-In `agent.json` `crawler_id`, `server_url` und unter `limits` **dieselbe Freigabe** eintragen:
-
-```json
-"limits": { "allow": ["192.168.1.0/24"], "max_hosts": 256 },
-"reverse_dns": true
-```
-
-`reverse_dns` erlaubt Hostnamen-Abfragen (PTR) über den DNS-Server des Crawler-Rechners.
+**Crawler sperren** (z. B. Gerät verloren): in der Oberfläche „Deaktivieren“ oder `crawler disable --id lan-1`. Er bekommt keine Jobs mehr, seine Abfragen und Ergebnisse werden abgelehnt.
 
 ### 4. Netz anlegen
 
@@ -121,16 +142,7 @@ docker compose run --rm server network add --crawler lan-1 --name Heimnetz \
 
 Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`. Oder in der Weboberfläche unter „Netze“.
 
-### 5. Crawler starten
-
-```bash
-./netcrawl-agent --config agent.json          # dauerhaft, fragt alle interval_seconds nach Jobs
-./netcrawl-agent --config agent.json --once   # einmal abfragen
-```
-
-Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `crawler_id`, `polling.interval_seconds >= 60`, gültige Freigabe (private Bereiche, Hostlimit), kein bereits laufender Crawl (Lock-Datei). Schlägt etwas fehl, beendet er sich ohne Request. Exit-Codes bei `--once`: `0` ok, `1` Fehler, `2` Job lokal abgelehnt.
-
-### 6. Ergebnisse ansehen
+### 5. Ergebnisse ansehen
 
 ```bash
 docker compose run --rm server hosts
@@ -139,6 +151,12 @@ docker compose run --rm server network list
 docker compose run --rm server network scan --id 1 --kind discovery   # sofort erkennen
 ```
 
+### Crawler manuell einrichten (ohne Installer)
+
+Für andere Systeme oder die Docker-Variante: Mit `crawler add` erhält man das Secret (einmalig angezeigt). Dann `agent.secret` (Rechte `600`) und `agent.json` nach `configs/agent.example.json` anlegen, mit **derselben Freigabe** unter `limits` und bei selbstsigniertem Zertifikat `"tls_pin": "sha256//…"` (steht im Server-Log). Start: `netcrawl-agent --config agent.json` (`--once` für einen einzelnen Abruf).
+
+Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `crawler_id`, `polling.interval_seconds >= 60`, gültige Freigabe (private Bereiche, Hostlimit), kein bereits laufender Crawl (Lock-Datei). Schlägt etwas fehl, beendet er sich ohne Request. Exit-Codes bei `--once`: `0` ok, `1` Fehler, `2` Job lokal abgelehnt.
+
 ## Admin-API
 
 | Methode | Pfad | Zweck |
@@ -146,6 +164,8 @@ docker compose run --rm server network scan --id 1 --kind discovery   # sofort e
 | `POST` | `/api/v1/admin/login`, `/logout` | An-/Abmelden (Session-Cookie) |
 | `GET` | `/api/v1/admin/me` | aktueller Benutzer |
 | `GET`/`POST` | `/api/v1/admin/crawlers` | Crawler auflisten / registrieren (Secret einmalig in der Antwort) |
+| `PUT` | `/api/v1/admin/crawlers/{id}` | `{"enabled": false}` sperrt, `true` entsperrt |
+| `POST` | `/api/v1/admin/crawlers/{id}/enroll` | `{"reverse_dns": true}` → Installationsbefehl mit Einmal-Code |
 | `GET`/`POST` | `/api/v1/admin/networks` | Netze auflisten / anlegen |
 | `PUT` | `/api/v1/admin/networks/{id}` | Netz ändern (z. B. `"enabled": false`) |
 | `POST` | `/api/v1/admin/networks/{id}/scan` | `{"kind": "discovery"}` oder `{"kind": "ports"}` sofort |
@@ -160,6 +180,7 @@ Schreibende Requests mit Session-Cookie müssen `Content-Type: application/json`
 
 ## Sicherheitshinweise
 
+- Einmal-Codes werden nur als SHA-256 gespeichert, gelten einmal und 30 Minuten. Wer einen gültigen Code abfängt und zuerst einlöst, kann sich als dieser Crawler ausgeben: Er sieht dessen Jobs (Ziele, Ports) und kann falsche Ergebnisse melden. Deshalb den Befehl nicht weitergeben und zeitnah ausführen. Ein fremdes Einlösen fällt auf: Es steht im Audit-Log (`crawler.enroll` mit IP), und die eigene Installation scheitert mit „code already used“. Dann den Crawler deaktivieren und neu anlegen.
 - Crawler-Secrets und Result-Tokens liegen im Klartext in der Datenbank, weil der Server sie zur HMAC-Prüfung braucht. Datenbank-Zugriff und Backups entsprechend schützen.
 - Admin-Passwörter werden mit bcrypt gespeichert, Session-Tokens nur als SHA-256.
 - Anmeldungen, Registrierungen, Netz- und Job-Anlagen, Auslieferungen, angenommene/abgelehnte Ergebnisse und Fehler des Schedulers stehen im Audit-Log.

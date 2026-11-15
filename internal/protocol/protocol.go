@@ -259,3 +259,43 @@ func ParseTimestamp(value string, now time.Time) (int64, error) {
 	}
 	return ts, nil
 }
+
+// Installer (enrollment). An admin creates a one-time code for a
+// registered crawler; the install script hands it to
+// "netcrawl-agent enroll", which redeems it once for the crawler secret
+// and the release (limits) that become the local agent.json.
+const (
+	// PathInstallScriptFmt serves the install script for a code.
+	PathInstallScriptFmt = "/install/%s"
+	// PathInstallAgentFmt serves the agent binary for an architecture
+	// (amd64, arm64).
+	PathInstallAgentFmt = "/install/agent/linux-%s"
+	// PathEnroll redeems a code (POST, EnrollRequest).
+	PathEnroll = "/install/enroll"
+	// EnrollTTL is how long a code stays valid.
+	EnrollTTL = 30 * time.Minute
+)
+
+// EnrollRequest redeems a one-time code.
+type EnrollRequest struct {
+	Token        string `json:"token"`
+	AgentVersion string `json:"agent_version,omitempty"`
+}
+
+// EnrollResponse carries everything the agent needs for its config. The
+// secret is new: redeeming a code replaces the crawler's old secret.
+type EnrollResponse struct {
+	CrawlerID       string   `json:"crawler_id"`
+	Secret          string   `json:"secret"`
+	Allow           []string `json:"allow"`
+	MaxHosts        int      `json:"max_hosts"`
+	ReverseDNS      bool     `json:"reverse_dns"`
+	IntervalSeconds int      `json:"interval_seconds"`
+}
+
+// ValidToken reports whether t looks like a one-time code (a 32 byte key
+// in base64url), so it can be placed in a URL path.
+func ValidToken(t string) bool {
+	k, err := DecodeKey(t)
+	return err == nil && len(k) == KeySize && EncodeKey(k) == t
+}

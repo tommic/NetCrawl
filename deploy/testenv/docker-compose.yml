@@ -38,6 +38,8 @@ services:
       - ./data:/data
     environment:
       NETCRAWL_DATABASE_URL: postgres://netcrawl:${NETCRAWL_DB_PASSWORD}@127.0.0.1:${NETCRAWL_DB_PORT:-55432}/netcrawl?sslmode=disable
+      # Installer over plain http, accepted for loopback only.
+      NETCRAWL_PUBLIC_URL: http://127.0.0.1:${NETCRAWL_PORT:-8080}
 
   # Scan target: a tiny web server on 127.0.0.1.
   target:

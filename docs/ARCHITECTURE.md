@@ -116,6 +116,8 @@ netcrawl-server ──(Job: Ziele, Ports, Ablauf, Result-Token)──► netcraw
 
 Netze, Inventar und Ereignisse (M2): Ein Scheduler im Server erzeugt pro Netz regelmäßig Host-Erkennungs- und Portscan-Jobs. Ergebnisse aktualisieren das Inventar (`internal/inventory`) in einer Datenbank-Transaktion; daraus entstehen Ereignisse für neue, verschwundene und wiederkehrende Hosts, Hostname-Wechsel sowie geöffnete und geschlossene Ports. Details in [`SERVER.md`](SERVER.md).
 
+Installation (M3): Der Admin legt einen Crawler in der Weboberfläche an und erhält einen Einzeiler mit Einmal-Code. Das Skript lädt den Crawler vom eigenen Server (`--agent-dir`), `netcrawl-agent enroll` löst den Code ein, erhält ein neues Secret und schreibt die Freigabe fest in `agent.json`; ein systemd-Dienst startet ihn. Bei einem selbstsignierten Server-Zertifikat prüfen `curl` und Crawler genau den Schlüssel des Servers (`internal/tlspin`).
+
 ## Abbruch (Strg+C)
 
 - **Erstes** Strg+C bzw. `SIGTERM`: Das gerade laufende `/24` wird noch fertig gescannt und geschrieben, danach endet der Lauf. Weitere Netze werden nicht mehr begonnen.
@@ -309,7 +311,7 @@ NetCrawl/
 │   └── result2md/
 │       └── main.go
 ├── internal/
-│   ├── agent/       # Crawler: Konfiguration, Vorabprüfung, Job-Prüfung
+│   ├── agent/       # Crawler: Konfiguration, Vorabprüfung, Job-Prüfung, Installation (enroll)
 │   ├── config/      # Laden + Prüfen von config.json
 │   ├── denylist/
 │   ├── e2e/         # Abnahmetests (Loopback-Pilot, Inventar-Ablauf)
@@ -322,8 +324,9 @@ NetCrawl/
 │   ├── protocol/    # Job-/Ergebnisformat, HMAC-Signatur
 │   ├── result/
 │   ├── scope/       # Freigabe: Allowlist, Hostlimit, private Bereiche
-│   ├── server/      # HTTP-API (Crawler + Admin), Scheduler, Weboberfläche
+│   ├── server/      # HTTP-API (Crawler + Admin), Scheduler, Weboberfläche, Installer
 │   ├── store/       # Datenhaltung: pgstore (PostgreSQL), memstore (Tests)
+│   ├── tlspin/      # Selbstsigniertes Zertifikat, Schlüssel-Pinning
 │   ├── version/
 │   └── scanner/
 │       ├── tcp/

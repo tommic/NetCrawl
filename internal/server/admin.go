@@ -159,7 +159,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name: SessionCookie, Value: token, Path: "/", Expires: expires,
 		HttpOnly: true, Secure: s.secure, SameSite: s.sameSite(),
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC()})
+	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC(), "installer": s.install != nil})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +171,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"username": adminFrom(r.Context()).Username})
+	writeJSON(w, http.StatusOK, map[string]any{"username": adminFrom(r.Context()).Username, "installer": s.install != nil})
 }
 
 // CrawlerView is the API representation of a crawler (without secret).
