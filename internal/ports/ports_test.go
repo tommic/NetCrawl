@@ -78,9 +78,19 @@ func TestSpecUnmarshal(t *testing.T) {
 
 func TestPresetsListed(t *testing.T) {
 	names := strings.Join(Presets(), ",")
-	for _, want := range []string{"all", "common", "custom", "database", "tiny", "web"} {
+	for _, want := range []string{"all", "common", "custom", "database", "discovery", "tiny", "top100", "web"} {
 		if !strings.Contains(names, want) {
 			t.Errorf("Presets() = %s, missing %s", names, want)
 		}
+	}
+}
+
+func TestTop100(t *testing.T) {
+	got, err := Resolve("top100", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 100 {
+		t.Errorf("top100 has %d ports", len(got))
 	}
 }
