@@ -221,7 +221,10 @@ func (s *Server) handleCreateCrawler(w http.ResponseWriter, r *http.Request) {
 type JobView struct {
 	ID          string          `json:"id"`
 	CrawlerID   string          `json:"crawler_id"`
+	NetworkID   *int64          `json:"network_id,omitempty"`
+	Kind        string          `json:"kind"`
 	Targets     []string        `json:"targets"`
+	Deny        []string        `json:"deny,omitempty"`
 	Ports       []int           `json:"ports"`
 	MaxHosts    int             `json:"max_hosts"`
 	TimeoutMs   int             `json:"timeout_ms"`
@@ -237,7 +240,8 @@ type JobView struct {
 
 func (s *Server) jobView(j store.Job) JobView {
 	return JobView{
-		ID: j.ID, CrawlerID: j.CrawlerID, Targets: j.Targets, Ports: j.Ports, MaxHosts: j.MaxHosts,
+		ID: j.ID, CrawlerID: j.CrawlerID, NetworkID: j.NetworkID, Kind: j.Kind, Targets: j.Targets, Deny: j.Deny,
+		Ports: j.Ports, MaxHosts: j.MaxHosts,
 		TimeoutMs: j.TimeoutMs, Status: j.Status,
 		Expired:   j.Status != store.JobCompleted && !s.now().Before(j.ExpiresAt),
 		CreatedBy: j.CreatedBy, CreatedAt: j.CreatedAt, ExpiresAt: j.ExpiresAt,

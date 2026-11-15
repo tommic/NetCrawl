@@ -5,6 +5,7 @@ package memstore
 import (
 	"context"
 	"encoding/json"
+	"net/netip"
 	"slices"
 	"sort"
 	"sync"
@@ -31,6 +32,10 @@ type Store struct {
 	jobs     map[string]store.Job
 	results  map[string]store.Result
 	audit    []store.AuditEntry
+	networks map[int64]store.Network
+	nextNet  int64
+	hosts    map[int64]map[string]store.Host
+	events   []store.Event
 }
 
 // New returns an empty store.
@@ -42,6 +47,8 @@ func New() *Store {
 		nonces:   map[nonceKey]time.Time{},
 		jobs:     map[string]store.Job{},
 		results:  map[string]store.Result{},
+		networks: map[int64]store.Network{},
+		hosts:    map[int64]map[string]store.Host{},
 	}
 }
 
@@ -182,7 +189,18 @@ func (s *Store) CreateJob(_ context.Context, j store.Job) error {
 	if _, ok := s.crawlers[j.CrawlerID]; !ok {
 		return store.ErrNotFound
 	}
+	if j.NetworkID != nil {
+		if _, ok := s.networks[*j.NetworkID]; !ok {
+			return store.ErrNotFound
+		}
+		id := *j.NetworkID
+		j.NetworkID = &id
+	}
+	if j.Kind == "" {
+		j.Kind = "ports"
+	}
 	j.Targets = slices.Clone(j.Targets)
+	j.Deny = slices.Clone(j.Deny)
 	j.Ports = slices.Clone(j.Ports)
 	j.ResultToken = slices.Clone(j.ResultToken)
 	s.jobs[j.ID] = j
@@ -313,5 +331,211 @@ func (s *Store) ListAudit(_ context.Context, limit int) ([]store.AuditEntry, err
 			break
 		}
 	}
+	return out, nil
+}
+
+func cloneNetwork(n store.Network) store.Network {
+	n.Targets = slices.Clone(n.Targets)
+	n.Deny = slices.Clone(n.Deny)
+	n.DiscoveryPorts = slices.Clone(n.DiscoveryPorts)
+	n.ScanPorts = slices.Clone(n.ScanPorts)
+	n.LastDiscoveryAt = cloneTime(n.LastDiscoveryAt)
+	n.LastPortscanAt = cloneTime(n.LastPortscanAt)
+	n.DiscoveryDoneAt = cloneTime(n.DiscoveryDoneAt)
+	n.PortscanDoneAt = cloneTime(n.PortscanDoneAt)
+	return n
+}
+
+func cloneHost(h store.Host) store.Host {
+	h.Ports = slices.Clone(h.Ports)
+	h.PortsScannedAt = cloneTime(h.PortsScannedAt)
+	return h
+}
+
+func cloneTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
+}
+
+func (s *Store) CreateNetwork(_ context.Context, n store.Network) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.crawlers[n.CrawlerID]; !ok {
+		return 0, store.ErrNotFound
+	}
+	for _, other := range s.networks {
+		if other.Name == n.Name {
+			return 0, store.ErrExists
+		}
+	}
+	s.nextNet++
+	n.ID = s.nextNet
+	s.networks[n.ID] = cloneNetwork(n)
+	return n.ID, nil
+}
+
+func (s *Store) Network(_ context.Context, id int64) (store.Network, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.networks[id]
+	if !ok {
+		return store.Network{}, store.ErrNotFound
+	}
+	return cloneNetwork(n), nil
+}
+
+func (s *Store) ListNetworks(_ context.Context) ([]store.Network, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]store.Network, 0, len(s.networks))
+	for _, n := range s.networks {
+		out = append(out, cloneNetwork(n))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (s *Store) UpdateNetworkSettings(_ context.Context, n store.Network) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.networks[n.ID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	for _, other := range s.networks {
+		if other.ID != n.ID && other.Name == n.Name {
+			return store.ErrExists
+		}
+	}
+	cur.Name, cur.Targets, cur.Deny = n.Name, slices.Clone(n.Targets), slices.Clone(n.Deny)
+	cur.DiscoveryPorts, cur.ScanPorts = slices.Clone(n.DiscoveryPorts), slices.Clone(n.ScanPorts)
+	cur.DiscoveryInterval, cur.PortscanInterval = n.DiscoveryInterval, n.PortscanInterval
+	cur.OfflineInfoAfter, cur.OfflineWarnAfter = n.OfflineInfoAfter, n.OfflineWarnAfter
+	cur.ReverseDNS, cur.Enabled = n.ReverseDNS, n.Enabled
+	s.networks[n.ID] = cur
+	return nil
+}
+
+func (s *Store) UpdateNetworkSchedule(_ context.Context, id int64, lastDiscovery, lastPortscan *time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.networks[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	n.LastDiscoveryAt, n.LastPortscanAt = cloneTime(lastDiscovery), cloneTime(lastPortscan)
+	s.networks[id] = n
+	return nil
+}
+
+func (s *Store) OpenNetworkJobs(_ context.Context, networkID int64, kind string, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, j := range s.jobs {
+		if j.NetworkID != nil && *j.NetworkID == networkID && j.Kind == kind &&
+			j.Status != store.JobCompleted && now.Before(j.ExpiresAt) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (s *Store) UpdateInventory(_ context.Context, networkID int64, fn store.InventoryUpdate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.networks[networkID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	work := cloneNetwork(n)
+	hosts := map[string]*store.Host{}
+	for ip, h := range s.hosts[networkID] {
+		c := cloneHost(h)
+		hosts[ip] = &c
+	}
+	changed, events, err := fn(&work, hosts)
+	if err != nil {
+		return err
+	}
+	if s.hosts[networkID] == nil {
+		s.hosts[networkID] = map[string]store.Host{}
+	}
+	for _, ip := range changed {
+		h, ok := hosts[ip]
+		if !ok {
+			continue
+		}
+		c := cloneHost(*h)
+		c.NetworkID, c.IP = networkID, ip
+		sort.Slice(c.Ports, func(i, j int) bool { return c.Ports[i].Port < c.Ports[j].Port })
+		s.hosts[networkID][ip] = c
+	}
+	for _, e := range events {
+		e.ID = int64(len(s.events) + 1)
+		e.NetworkID = networkID
+		if e.Details == nil {
+			e.Details = json.RawMessage("null")
+		}
+		s.events = append(s.events, e)
+	}
+	n.DiscoveryDoneAt = cloneTime(work.DiscoveryDoneAt)
+	n.PortscanDoneAt = cloneTime(work.PortscanDoneAt)
+	n.BaselineDone = work.BaselineDone
+	s.networks[networkID] = n
+	return nil
+}
+
+func (s *Store) Hosts(_ context.Context, networkID int64) ([]store.Host, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.Host
+	for nid, hosts := range s.hosts {
+		if networkID != 0 && nid != networkID {
+			continue
+		}
+		for _, h := range hosts {
+			out = append(out, cloneHost(h))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NetworkID != out[j].NetworkID {
+			return out[i].NetworkID < out[j].NetworkID
+		}
+		return netip.MustParseAddr(out[i].IP).Less(netip.MustParseAddr(out[j].IP))
+	})
+	return out, nil
+}
+
+func (s *Store) SetHostImportant(_ context.Context, networkID int64, ip string, important bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h, ok := s.hosts[networkID][ip]
+	if !ok {
+		return store.ErrNotFound
+	}
+	h.Important = important
+	s.hosts[networkID][ip] = h
+	return nil
+}
+
+func (s *Store) ListEvents(_ context.Context, f store.EventFilter) ([]store.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.Event
+	for i := len(s.events) - 1; i >= 0; i-- {
+		e := s.events[i]
+		if (f.NetworkID != 0 && e.NetworkID != f.NetworkID) || (f.IP != "" && e.IP != f.IP) || (e.Baseline && !f.IncludeBaseline) {
+			continue
+		}
+		out = append(out, e)
+		if f.Limit > 0 && len(out) == f.Limit {
+			break
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
 	return out, nil
 }

@@ -114,6 +114,8 @@ netcrawl-server ──(Job: Ziele, Ports, Ablauf, Result-Token)──► netcraw
    PostgreSQL ◄──(Ergebnis, HMAC mit Result-Token, einmalig)── engine.Run
 ```
 
+Netze, Inventar und Ereignisse (M2): Ein Scheduler im Server erzeugt pro Netz regelmäßig Host-Erkennungs- und Portscan-Jobs. Ergebnisse aktualisieren das Inventar (`internal/inventory`) in einer Datenbank-Transaktion; daraus entstehen Ereignisse für neue, verschwundene und wiederkehrende Hosts, Hostname-Wechsel sowie geöffnete und geschlossene Ports. Details in [`SERVER.md`](SERVER.md).
+
 ## Abbruch (Strg+C)
 
 - **Erstes** Strg+C bzw. `SIGTERM`: Das gerade laufende `/24` wird noch fertig gescannt und geschrieben, danach endet der Lauf. Weitere Netze werden nicht mehr begonnen.
@@ -200,7 +202,7 @@ Beispiel:
         "22": {
           "banner": "SSH-2.0-OpenSSH_9.6",
           "sshKeyType": "ecdsa-sha2-nistp256",
-          "sshKeyFingerprint": "SHA256:jgNEp8UZwyiggRAk4jnlNKcBjRC8B4iEbvF2uGO6zrM"
+          "sshKeyFingerprint": "SHA256:<Fingerprint des Host-Keys>"
         },
         "443": {
           "tlsSubject": "router.local",
@@ -310,15 +312,17 @@ NetCrawl/
 │   ├── agent/       # Crawler: Konfiguration, Vorabprüfung, Job-Prüfung
 │   ├── config/      # Laden + Prüfen von config.json
 │   ├── denylist/
-│   ├── e2e/         # Abnahmetests Loopback-Pilot
+│   ├── e2e/         # Abnahmetests (Loopback-Pilot, Inventar-Ablauf)
+│   ├── eventlog/    # JSONL-Ereignislog, eine Datei pro Tag
 │   ├── engine/      # Plan (/24-Jobs) und Scan-Ablauf
 │   ├── envconfig/
+│   ├── inventory/   # Baseline, neue/verschwundene Hosts, Port-Änderungen
 │   ├── iprange/
 │   ├── ports/       # Presets, Einzelports, Portbereiche
 │   ├── protocol/    # Job-/Ergebnisformat, HMAC-Signatur
 │   ├── result/
-│   ├── scope/       # Allowlist, Hostlimit, Pilot-Beschränkung
-│   ├── server/      # HTTP-API (Crawler + Admin)
+│   ├── scope/       # Freigabe: Allowlist, Hostlimit, private Bereiche
+│   ├── server/      # HTTP-API (Crawler + Admin), Scheduler, Weboberfläche
 │   ├── store/       # Datenhaltung: pgstore (PostgreSQL), memstore (Tests)
 │   ├── version/
 │   └── scanner/

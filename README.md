@@ -5,7 +5,7 @@ Ein Go-basierter TCP-Connect-Scanner für eigene bzw. autorisierte Netze.
 Bestandteile:
 
 - `netcrawler`, `result2csv`, `result2md` – eigenständiger Scanner mit Datei-Export (dieses Dokument).
-- `netcrawl-server` und `netcrawl-agent` – zentraler Server mit PostgreSQL und Crawler, die Jobs abholen und signierte Ergebnisse zurückmelden. Derzeit nur als **Loopback-Pilot** freigegeben. Siehe [`docs/SERVER.md`](docs/SERVER.md), [`docs/PROTOCOL.md`](docs/PROTOCOL.md) und [`docs/E2E-ABNAHME.md`](docs/E2E-ABNAHME.md).
+- `netcrawl-server` und `netcrawl-agent` – zentraler Server mit PostgreSQL und Crawler: Netze mit Deny-Liste anlegen, automatische Host-Erkennung und Portscans, Inventar und Änderungsmeldungen (neue/verschwundene Hosts, geöffnete/geschlossene Ports) in Weboberfläche, CLI und JSONL-Log. Siehe [`docs/SERVER.md`](docs/SERVER.md), [`docs/PROTOCOL.md`](docs/PROTOCOL.md) und [`docs/E2E-ABNAHME.md`](docs/E2E-ABNAHME.md).
 
 ## Voraussetzungen
 

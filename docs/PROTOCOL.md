@@ -56,9 +56,20 @@ X-Request-HMAC: 9c1e…            (Schlüssel: Crawler-Secret, job_id leer)
   "max_hosts": 1,
   "ports": [22, 80],
   "timeout_ms": 500,
+  "kind": "discovery",
+  "deny": ["127.0.0.4"],
+  "reverse_dns": true,
   "result_token": "<43 Zeichen base64url>"
 }
 ```
+
+Felder für Netz-Jobs des Schedulers:
+
+- `kind`: `discovery` (wer ist online?) oder `ports` (welche Ports sind offen?). Fehlt das Feld, gilt `ports`.
+- `deny`: Adressen/Bereiche innerhalb der Ziele, die nicht kontaktiert werden.
+- `reverse_dns`: Hostnamen per PTR abfragen – nur wenn auch die lokale Crawler-Konfiguration `reverse_dns: true` hat.
+
+In beiden Arten meldet der Crawler auch Hosts ohne offenen Port, die eine Verbindung aktiv abgelehnt haben (sie sind online).
 
 ## Jobvalidierung im Crawler (nach GET, vor jedem TCP-Connect)
 
@@ -69,11 +80,11 @@ Ein Job wird nur ausgeführt, wenn:
 3. jedes Ziel vollständig in **einem** Eintrag der lokalen `limits.allow` liegt,
 4. `max_hosts` ≤ lokales `limits.max_hosts` und die Zahl der tatsächlich adressierten Hosts ≤ `max_hosts`,
 5. die Portliste gültig ist (1–65535, keine Duplikate, höchstens 1024 Ports),
-6. `timeout_ms` zwischen 1 und 10.000 liegt und das Result-Token dekodierbar ist.
+6. `timeout_ms` zwischen 1 und 10.000 liegt, `kind` bekannt ist, die `deny`-Einträge gültig sind und das Result-Token dekodierbar ist.
 
 Bei jeder Ablehnung: **kein TCP-Connect und kein Ergebnis-POST.** Der Crawler protokolliert den Grund lokal.
 
-Jobs werden ausschließlich als TCP-Connect-Scan ausgeführt: kein Reverse-DNS (würde den Resolver kontaktieren) und keine Dienst-Erkennung (würde zusätzliche Verbindungen öffnen).
+Jobs werden ausschließlich als TCP-Connect-Scan ausgeführt, ohne Dienst-Erkennung (die würde zusätzliche Verbindungen öffnen). Reverse-DNS nur, wenn Job und lokale Konfiguration es erlauben.
 
 ## Ergebnis abgeben
 
@@ -110,13 +121,14 @@ Erfolg: `201`. Die Signatur wird geprüft, bevor der Body ausgewertet wird. Ein 
 
 Ein Job wird nur angelegt, wenn seine Ziele in der **serverseitigen** Allowlist des Crawlers liegen und `max_hosts` dessen Limit nicht überschreitet. TTL 1–60 Minuten (Standard 5), Timeout 1–10.000 ms (Standard 500).
 
-## Pilot-Beschränkung
+## Freigabe
 
-In dieser Version ist ausschließlich der **Loopback-Pilot** freigegeben (`internal/scope`, `PilotOnly`):
+Was ein Crawler scannen darf, steht an zwei Stellen (`internal/scope`, `CheckRelease`):
 
-- Crawler-Allowlist genau `["127.0.0.1/32"]`, `max_hosts` genau `1` – sowohl in der Agent-Konfiguration als auch bei der Registrierung auf dem Server.
+- **Server:** Allowlist und Hostlimit bei der Registrierung. Jobs außerhalb werden nicht angelegt.
+- **Crawler:** `limits.allow` und `limits.max_hosts` in `agent.json`. Jobs außerhalb werden vor jedem Connect abgelehnt.
 
-Erweiterung auf echte Netze erst nach schriftlich festgelegtem Umfang und Freigabe, als eigene Code-Änderung.
+Beide Seiten akzeptieren nur private Bereiche (RFC 1918, Loopback, Link-Local, CGNAT). Der Crawler erlaubt öffentliche Bereiche nur mit `"allow_public_ranges": true`; der Server gar nicht. Hostlimit 1–65.536.
 
 ## Transport
 

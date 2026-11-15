@@ -50,8 +50,14 @@ const (
 
 // Job is a scan order for one crawler.
 type Job struct {
-	ID          string
-	CrawlerID   string
+	ID        string
+	CrawlerID string
+	// NetworkID is set for jobs the scheduler created for a network.
+	NetworkID *int64
+	// Kind is "ports" or "discovery" (protocol.JobKind*).
+	Kind        string
+	Deny        []string
+	ReverseDNS  bool
 	Targets     []string
 	Ports       []int
 	MaxHosts    int
@@ -87,6 +93,99 @@ type Submission struct {
 	Body       []byte
 	BodySHA256 []byte
 }
+
+// Network is a scan area of one crawler with its schedule. The scheduler
+// creates discovery and port scan jobs for it; results update the
+// inventory.
+type Network struct {
+	ID                int64
+	CrawlerID         string
+	Name              string
+	Targets           []string
+	Deny              []string
+	DiscoveryPorts    []int
+	ScanPorts         []int
+	DiscoveryInterval time.Duration
+	PortscanInterval  time.Duration
+	// A host not seen for OfflineInfoAfter / OfflineWarnAfter (measured
+	// against completed discovery runs) raises an info / warning event.
+	OfflineInfoAfter time.Duration
+	OfflineWarnAfter time.Duration
+	ReverseDNS       bool
+	Enabled          bool
+	CreatedAt        time.Time
+
+	// Scheduling state, written by UpdateNetworkSchedule.
+	LastDiscoveryAt *time.Time
+	LastPortscanAt  *time.Time
+
+	// Inventory state, written only via UpdateInventory.
+	DiscoveryDoneAt *time.Time
+	PortscanDoneAt  *time.Time
+	BaselineDone    bool
+}
+
+// Host is an inventory entry: an address seen in a network.
+type Host struct {
+	NetworkID int64
+	IP        string
+	Hostname  string
+	FirstSeen time.Time
+	LastSeen  time.Time
+	Important bool
+	// OfflineLevel is "" while the host is considered present, otherwise
+	// the severity of the last "offline" event raised for it.
+	OfflineLevel string
+	// PortsScannedAt is the last port scan that saw the host; nil means
+	// no port baseline yet.
+	PortsScannedAt *time.Time
+	// Ports are the currently open ports, sorted by port.
+	Ports []HostPort
+}
+
+// HostPort is a currently open port of a host.
+type HostPort struct {
+	Port      int
+	FirstSeen time.Time
+	LastSeen  time.Time
+}
+
+// Event severities.
+const (
+	SeverityInfo     = "info"
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// Event is a detected change in the inventory.
+type Event struct {
+	ID        int64
+	At        time.Time
+	NetworkID int64
+	IP        string
+	Type      string
+	Severity  string
+	Message   string
+	Details   json.RawMessage
+	JobID     string
+	// Baseline marks events of the initial inventory run.
+	Baseline bool
+}
+
+// EventFilter selects events, newest first.
+type EventFilter struct {
+	NetworkID int64 // 0: all networks
+	IP        string
+	// IncludeBaseline also returns events of the initial inventory.
+	IncludeBaseline bool
+	Limit           int
+}
+
+// InventoryUpdate changes a network's inventory inside a transaction. It
+// gets the network and all its hosts (keyed by IP), may modify both in
+// place or add hosts to the map, and returns the IPs it changed and the
+// events to record. Hosts not listed in changed are not written.
+type InventoryUpdate func(n *Network, hosts map[string]*Host) (changed []string, events []Event, err error)
 
 // AuditEntry records an administrative or security-relevant action.
 type AuditEntry struct {
@@ -131,6 +230,28 @@ type Store interface {
 	// not expired (ErrExpired).
 	SubmitResult(ctx context.Context, s Submission) error
 	Result(ctx context.Context, jobID string) (Result, error)
+
+	CreateNetwork(ctx context.Context, n Network) (int64, error)
+	Network(ctx context.Context, id int64) (Network, error)
+	ListNetworks(ctx context.Context) ([]Network, error)
+	// UpdateNetworkSettings writes the editable settings (name, targets,
+	// deny, ports, intervals, thresholds, reverse DNS, enabled).
+	UpdateNetworkSettings(ctx context.Context, n Network) error
+	// UpdateNetworkSchedule records when jobs were last created.
+	UpdateNetworkSchedule(ctx context.Context, id int64, lastDiscovery, lastPortscan *time.Time) error
+	// OpenNetworkJobs counts pending or delivered, unexpired jobs of a
+	// network and kind.
+	OpenNetworkJobs(ctx context.Context, networkID int64, kind string, now time.Time) (int, error)
+
+	// UpdateInventory runs fn atomically for one network (see
+	// InventoryUpdate) and stores the changed hosts, the events and the
+	// network's inventory state.
+	UpdateInventory(ctx context.Context, networkID int64, fn InventoryUpdate) error
+	// Hosts lists the inventory of a network (0: all networks), sorted by
+	// network and numerically by IP.
+	Hosts(ctx context.Context, networkID int64) ([]Host, error)
+	SetHostImportant(ctx context.Context, networkID int64, ip string, important bool) error
+	ListEvents(ctx context.Context, f EventFilter) ([]Event, error)
 
 	Audit(ctx context.Context, actor, action string, details any) error
 	ListAudit(ctx context.Context, limit int) ([]AuditEntry, error)
