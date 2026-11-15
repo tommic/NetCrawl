@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"time"
 
+	"netcrawler/internal/eventlog"
+	"netcrawler/internal/inventory"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store"
 )
@@ -39,6 +41,8 @@ type Options struct {
 	// and sends the session cookie with SameSite=None; Secure. Only for
 	// test environments behind HTTPS.
 	Embeddable bool
+	// EventLog receives inventory events as JSON lines (optional).
+	EventLog *eventlog.Writer
 }
 
 // Server serves the netcrawl API.
@@ -50,6 +54,7 @@ type Server struct {
 	embed   bool
 	sessTTL time.Duration
 	limiter *loginLimiter
+	events  *eventlog.Writer
 }
 
 // New returns a server backed by st.
@@ -65,6 +70,7 @@ func New(st store.Store, opts Options) *Server {
 		s.sessTTL = 12 * time.Hour
 	}
 	s.limiter = newLoginLimiter(s.now)
+	s.events = opts.EventLog
 	return s
 }
 
@@ -88,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/admin/jobs/{id}", s.admin(s.handleGetJob))
 	mux.Handle("GET /api/v1/admin/audit", s.admin(s.handleAudit))
 
+	s.registerInventoryRoutes(mux)
 	s.registerUI(mux)
 	return s.securityHeaders(mux)
 }
@@ -212,6 +219,9 @@ func (s *Server) handleJobPoll(w http.ResponseWriter, r *http.Request) {
 		MaxHosts:    j.MaxHosts,
 		Ports:       j.Ports,
 		TimeoutMs:   j.TimeoutMs,
+		Kind:        j.Kind,
+		Deny:        j.Deny,
+		ReverseDNS:  j.ReverseDNS,
 		ResultToken: protocol.EncodeKey(j.ResultToken),
 	})
 }
@@ -308,6 +318,14 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.st.Audit(ctx, "crawler:"+crawlerID, "result.accepted", map[string]any{"job_id": jobID, "networks": len(res.Networks)})
 	s.log.Info("result accepted", "crawler", crawlerID, "job", jobID)
+	if j.NetworkID != nil {
+		// The result is stored; an inventory error must not turn the
+		// accepted submission into a failure for the crawler.
+		if err := s.applyInventory(ctx, *j.NetworkID, inventory.ApplyResult(j.Kind, j.ID, res, now)); err != nil {
+			s.log.Error("inventory update failed", "network", *j.NetworkID, "job", jobID, "err", err)
+			_ = s.st.Audit(ctx, "system", "inventory.error", map[string]any{"network_id": *j.NetworkID, "job_id": jobID, "error": err.Error()})
+		}
+	}
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "accepted", "job_id": jobID})
 }
 

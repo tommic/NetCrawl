@@ -18,6 +18,7 @@ import (
 
 	"netcrawler/internal/config"
 	"netcrawler/internal/engine"
+	"netcrawler/internal/iprange"
 	"netcrawler/internal/ports"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/result"
@@ -61,7 +62,7 @@ func New(cfg *Config) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := scope.CheckPilot(cfg.Limits.Allow, cfg.Limits.MaxHosts); err != nil {
+	if err := scope.CheckRelease(cfg.Limits.Allow, cfg.Limits.MaxHosts, cfg.Limits.AllowPublicRanges); err != nil {
 		return nil, err
 	}
 	lock, err := acquireLock(cfg.resolve(cfg.LockFile))
@@ -271,6 +272,16 @@ func (a *Agent) checkJob(job *protocol.Job) ([]byte, error) {
 	if job.TimeoutMs < 1 || job.TimeoutMs > MaxJobTimeoutMs {
 		return nil, fmt.Errorf("timeout_ms %d outside 1-%d", job.TimeoutMs, MaxJobTimeoutMs)
 	}
+	switch job.Kind {
+	case "", protocol.JobKindPorts, protocol.JobKindDiscovery:
+	default:
+		return nil, fmt.Errorf("unknown job kind %q", job.Kind)
+	}
+	for _, d := range job.Deny {
+		if _, err := iprange.Parse(d); err != nil {
+			return nil, fmt.Errorf("deny entry %q: %w", d, err)
+		}
+	}
 	token, err := protocol.DecodeKey(job.ResultToken)
 	if err != nil {
 		return nil, fmt.Errorf("result token: %w", err)
@@ -278,9 +289,10 @@ func (a *Agent) checkJob(job *protocol.Job) ([]byte, error) {
 	return token, nil
 }
 
-// scan runs the job with the shared scan engine: TCP connect only, no
-// reverse DNS and no service probes (they would contact the resolver or
-// open more connections than the job declares).
+// scan runs the job with the shared scan engine: TCP connect only and no
+// service probes (they would open more connections than the job
+// declares). Reverse DNS runs only if both the job and the local config
+// ask for it. Hosts that refuse connections are reported as alive.
 func (a *Agent) scan(ctx context.Context, job *protocol.Job) (protocol.Result, []string, error) {
 	custom := make([]ports.Spec, len(job.Ports))
 	for i, p := range job.Ports {
@@ -288,10 +300,12 @@ func (a *Agent) scan(ctx context.Context, job *protocol.Job) (protocol.Result, [
 	}
 	cfg := &config.Config{
 		Version: 1,
-		Targets: config.Targets{Include: job.Targets},
+		Targets: config.Targets{Include: job.Targets, Deny: job.Deny},
 		Ports:   config.Ports{Enabled: true, Preset: ports.PresetCustom, Custom: custom, TimeoutMs: job.TimeoutMs},
 		Hostname: config.Hostname{
-			Enabled: false, TimeoutMs: config.DefaultHostnameTimeoutMs,
+			Enabled:    job.ReverseDNS && a.cfg.ReverseDNS,
+			ReverseDNS: job.ReverseDNS && a.cfg.ReverseDNS,
+			TimeoutMs:  config.DefaultHostnameTimeoutMs,
 		},
 		Enrichment:  config.Enrichment{Enabled: false, TimeoutMs: config.DefaultEnrichmentTimeoutMs},
 		Performance: config.Performance{MaxConcurrentConnections: min(maxScanConcurrency, len(job.Ports)*job.MaxHosts)},
@@ -303,6 +317,7 @@ func (a *Agent) scan(ctx context.Context, job *protocol.Job) (protocol.Result, [
 		return protocol.Result{}, nil, err
 	}
 	eng.Now = a.Now
+	eng.ReportAlive = true
 	eng.Dial = a.Dial
 	eng.Logf = a.Logf
 	plan, err := engine.BuildPlan(cfg)

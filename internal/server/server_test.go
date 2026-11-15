@@ -168,10 +168,10 @@ func TestAdminCrawlersAndJobs(t *testing.T) {
 	}
 	for name, body := range map[string]string{
 		"duplicate":    `{"id":"lab-2","allow":["127.0.0.1/32"],"max_hosts":1}`,
-		"non-pilot":    `{"id":"lab-3","allow":["192.168.1.0/24"],"max_hosts":1}`,
+		"public range": `{"id":"lab-3","allow":["8.8.8.0/24"],"max_hosts":256}`,
 		"bad id":       `{"id":"Lab 3","allow":["127.0.0.1/32"],"max_hosts":1}`,
 		"unknown key":  `{"id":"lab-3","allow":["127.0.0.1/32"],"max_hosts":1,"x":1}`,
-		"max hosts 2":  `{"id":"lab-3","allow":["127.0.0.1/32"],"max_hosts":2}`,
+		"max hosts 0":  `{"id":"lab-3","allow":["127.0.0.1/32"],"max_hosts":0}`,
 		"no allowlist": `{"id":"lab-3","max_hosts":1}`,
 	} {
 		if resp := f.do("POST", "/api/v1/admin/crawlers", "application/json", body, c); resp.StatusCode != http.StatusBadRequest {

@@ -2,8 +2,10 @@
 # Local NetCrawl test environment (loopback pilot only).
 #
 #   ./testenv.sh up       start everything and set up admin, crawler and agent
-#   ./testenv.sh job      create a test job (the agent picks it up within 60 s)
-#   ./testenv.sh scan     create a test job and run the agent once right away
+#   ./testenv.sh scan     run host discovery and port scan of the test network right away
+#   ./testenv.sh events   show inventory events (changes)
+#   ./testenv.sh hosts    show the inventory
+#   ./testenv.sh job      create a single test job (the agent picks it up within 60 s)
 #   ./testenv.sh status   show crawlers and jobs
 #   ./testenv.sh result   show the newest job with its result
 #   ./testenv.sh login    show how to log in to the admin API
@@ -82,8 +84,8 @@ cmd_up() {
   fi
 
   if [[ ! -f $DATA/agent.secret ]]; then
-    echo "==> Registering crawler pilot-1"
-    out=$(server crawler add --id pilot-1 --allow 127.0.0.1/32 --max-hosts 1)
+    echo "==> Registering crawler pilot-1 (released for 127.0.0.0/29)"
+    out=$(server crawler add --id pilot-1 --allow 127.0.0.0/29 --max-hosts 8)
     (umask 077; printf '%s\n' "$(printf '%s\n' "$out" | tail -n 1)" > "$DATA/agent.secret")
   fi
 
@@ -94,10 +96,19 @@ cmd_up() {
   "server_url": "http://127.0.0.1:$(port)",
   "secret_file": "agent.secret",
   "polling": { "interval_seconds": 60 },
-  "limits": { "allow": ["127.0.0.1/32"], "max_hosts": 1 },
+  "limits": { "allow": ["127.0.0.0/29"], "max_hosts": 8 },
   "lock_file": "agent.lock"
 }
 JSON
+
+  if ! server network list | grep -q Testnetz; then
+    echo "==> Creating network Testnetz (127.0.0.1-127.0.0.4, 127.0.0.4 denied)"
+    tp=$(target_port)
+    server network add --crawler pilot-1 --name Testnetz --target 127.0.0.1-127.0.0.4 --deny 127.0.0.4 \
+      --discovery-ports "22,80,443,$tp" --scan-ports "22,80,443,8080,$tp,$((tp + 1))" \
+      --discovery-interval 5m --portscan-interval 1h --no-reverse-dns >/dev/null
+  fi
+  mkdir -p "$DATA/events"
 
   echo "==> Starting the crawler (polls every 60 s)"
   compose up -d --build agent
@@ -108,11 +119,13 @@ Test environment is running.
 
   Web UI / API   http://127.0.0.1:$(port)   (user admin, password: $(cat "$DATA/admin-password.txt"))
   Scan target    http://127.0.0.1:$(target_port)   (tiny web server, port $(target_port) open)
-  Crawler        pilot-1, scans only 127.0.0.1
+  Crawler        pilot-1, released for 127.0.0.0/29
+  Network        Testnetz: 127.0.0.1-127.0.0.4 (127.0.0.4 denied), discovery every 5 min, port scan hourly
+  Event log      deploy/testenv/data/events/
 
 Next steps:
-  ./testenv.sh scan     create a job and scan right away
-  ./testenv.sh result   show the result
+  ./testenv.sh scan     discovery + port scan right away
+  ./testenv.sh events   show changes (try: start/stop something on 127.0.0.1:$(( $(target_port) + 1 )), then scan)
   ./testenv.sh login    log in to the admin API
   ./testenv.sh down     remove everything
 INFO
@@ -124,20 +137,35 @@ create_job() {
 
 cmd_job() { need_env; create_job; echo "The crawler picks it up within 60 s. Then: ./testenv.sh result"; }
 
+run_agent_once() {
+  compose run --rm agent --config /data/agent.json --once >/dev/null 2>&1 || true
+}
+
 cmd_scan() {
   need_env
-  create_job
-  echo "==> Running the crawler once"
-  # The background crawler holds the lock; pause it for the one-off run.
+  id=$(server network list | awk '$2 == "Testnetz" {print $1}')
+  [[ -n $id ]] || { echo "Testnetz not found, run: ./testenv.sh up" >&2; exit 1; }
+  # The background crawler holds the lock; pause it for the one-off runs.
   compose stop agent >/dev/null 2>&1 || true
-  compose run --rm agent --config /data/agent.json --once || true
+  echo "==> Host discovery"
+  server network scan --id "$id" --kind discovery >/dev/null || true
+  run_agent_once
+  echo "==> Port scan"
+  server network scan --id "$id" --kind ports >/dev/null || true
+  run_agent_once
   compose start agent >/dev/null 2>&1 || true
-  cmd_result
+  cmd_hosts
+  echo
+  cmd_events
 }
+
+cmd_hosts() { need_env; echo "== Inventory"; server hosts; }
+cmd_events() { need_env; echo "== Events (changes, newest first)"; server events --limit 20 --baseline; }
 
 cmd_status() {
   need_env
   echo "== Crawlers"; server crawler list
+  echo; echo "== Networks"; server network list
   echo; echo "== Jobs"; server job list --limit 10
 }
 
@@ -179,10 +207,12 @@ case "${1:-}" in
   up) cmd_up ;;
   job) cmd_job ;;
   scan) cmd_scan ;;
+  hosts) cmd_hosts ;;
+  events) cmd_events ;;
   status) cmd_status ;;
   result) cmd_result ;;
   login) cmd_login ;;
   logs) cmd_logs ;;
   down) cmd_down ;;
-  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

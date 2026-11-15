@@ -38,6 +38,9 @@ type Config struct {
 	LockFile string `json:"lock_file"`
 	// CAFile optionally adds a CA certificate for an https server_url.
 	CAFile string `json:"ca_file"`
+	// ReverseDNS allows PTR lookups for found hosts when a job asks for
+	// them. Lookups contact the configured DNS resolver.
+	ReverseDNS bool `json:"reverse_dns"`
 
 	secret  []byte
 	baseDir string
@@ -47,11 +50,14 @@ type Polling struct {
 	IntervalSeconds int `json:"interval_seconds"`
 }
 
-// Limits are the local scan boundaries. A job outside of them is rejected
-// before any connection is made, whatever the server says.
+// Limits are the local scan boundaries: the release of what this crawler
+// may scan. A job outside of them is rejected before any connection is
+// made, whatever the server says. Only private ranges are accepted unless
+// AllowPublicRanges is set.
 type Limits struct {
-	Allow    []string `json:"allow"`
-	MaxHosts int      `json:"max_hosts"`
+	Allow             []string `json:"allow"`
+	MaxHosts          int      `json:"max_hosts"`
+	AllowPublicRanges bool     `json:"allow_public_ranges"`
 }
 
 // LoadConfig reads and validates the agent config and loads the secret.
@@ -99,13 +105,7 @@ func (c *Config) validate() error {
 	if c.Polling.IntervalSeconds < MinPollInterval {
 		add("polling.interval_seconds must be at least %d, got %d", MinPollInterval, c.Polling.IntervalSeconds)
 	}
-	if _, err := scope.ParseAllowlist(c.Limits.Allow); err != nil {
-		add("limits.allow: %v", err)
-	}
-	if c.Limits.MaxHosts < 1 {
-		add("limits.max_hosts must be at least 1")
-	}
-	if err := scope.CheckPilot(c.Limits.Allow, c.Limits.MaxHosts); err != nil {
+	if err := scope.CheckRelease(c.Limits.Allow, c.Limits.MaxHosts, c.Limits.AllowPublicRanges); err != nil {
 		add("limits: %v", err)
 	}
 	if strings.TrimSpace(c.LockFile) == "" {

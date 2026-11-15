@@ -32,6 +32,12 @@ Der Beleg landet in `e2e-report.md`. Die CI erzeugt ihn bei jedem Push gegen Pos
 | E2E-07 | `polling.interval_seconds < 60` | Werte 59, 0, −1 (60 als Gegenprobe) | Config-Load schlägt fehl, kein Polling/Connect/POST |
 | V-01 | Vorabvalidierung „kein laufender Crawl“ | zweiter Start mit derselben Lock-Datei | Abbruch vor jedem Netzwerkzugriff |
 
+## Inventar-Ablauf (M2-01)
+
+Zusätzlich zur Pilot-Abnahme läuft `M2-01` mit echtem Crawler gegen die Loopback-Adressen `127.0.0.1`–`127.0.0.3` (Deny: `127.0.0.3`): Host-Erkennung, Initialbestand, Port-Baseline, danach ein neu geöffneter Port (Warnung) und ein geschlossener Port (Info). Nachweis: Die Deny-Adresse wurde nie kontaktiert, alle Verbindungen gingen an `127.0.0.1` und `127.0.0.2`.
+
+Die feste Pilot-Sperre im Code ist seit M2 durch die Freigabe in der Konfiguration ersetzt (siehe `PROTOCOL.md`, „Freigabe“). Die Testfälle E2E-01 bis E2E-07 laufen weiterhin mit der Pilot-Freigabe `127.0.0.1/32`, `max_hosts: 1` und belegen damit, dass der Crawler seine lokale Freigabe durchsetzt.
+
 ## Abnahmebeleg
 
 Pro Testfall enthält `e2e-report.md`:

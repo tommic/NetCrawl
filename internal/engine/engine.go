@@ -58,6 +58,10 @@ type Engine struct {
 	// agent uses it to record every connection attempt as evidence.
 	// Service enrichment (probe) always uses net.Dialer.
 	Dial tcp.DialFunc
+	// ReportAlive also lists hosts without open ports that actively
+	// refused a connection (host discovery). Off for the CLI, where only
+	// hosts with open ports are reported.
+	ReportAlive bool
 }
 
 // New prepares an engine for a validated config. started is the run's
@@ -156,7 +160,15 @@ func (e *Engine) ScanNetwork(ctx context.Context, network netip.Prefix, addresse
 
 	found := map[string][]int{}
 	if cfg.Ports.Enabled && len(e.ports) > 0 {
-		found = tcp.ScanWithDialer(ctx, e.Dial, addresses, e.ports, ms(cfg.Ports.TimeoutMs), cfg.Performance.MaxConcurrentConnections)
+		probed := tcp.Probe(ctx, e.Dial, addresses, e.ports, ms(cfg.Ports.TimeoutMs), cfg.Performance.MaxConcurrentConnections)
+		found = probed.Open
+		if e.ReportAlive {
+			for ip := range probed.Alive {
+				if _, ok := found[ip]; !ok {
+					found[ip] = []int{}
+				}
+			}
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return result.NetworkResult{}, err

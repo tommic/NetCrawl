@@ -4,28 +4,46 @@ package tcp
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"sort"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 )
 
 // DialFunc opens a connection, like net.Dialer.DialContext.
 type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
+// Result of a probe run.
+type Result struct {
+	// Open lists the open ports per address, sorted.
+	Open map[string][]int
+	// Alive holds every address that answered on at least one port,
+	// either by accepting the connection or by actively refusing it
+	// (TCP RST). A refusal proves the host is up even if every probed
+	// port is closed.
+	Alive map[string]bool
+}
+
 // Scan tries every (address, port) pair with at most concurrency parallel
 // connection attempts and returns the open ports per address. If ctx is
 // cancelled, Scan stops early and returns what it found so far; callers
 // should check ctx.Err() to tell a partial result from a complete one.
 func Scan(ctx context.Context, addresses []netip.Addr, ports []int, timeout time.Duration, concurrency int) map[string][]int {
-	return ScanWithDialer(ctx, nil, addresses, ports, timeout, concurrency)
+	return Probe(ctx, nil, addresses, ports, timeout, concurrency).Open
 }
 
 // ScanWithDialer is Scan with a custom dial function (nil uses
 // net.Dialer). Each attempt is bounded by timeout via its context.
 func ScanWithDialer(ctx context.Context, dial DialFunc, addresses []netip.Addr, ports []int, timeout time.Duration, concurrency int) map[string][]int {
+	return Probe(ctx, dial, addresses, ports, timeout, concurrency).Open
+}
+
+// Probe is ScanWithDialer that also reports which hosts are alive.
+func Probe(ctx context.Context, dial DialFunc, addresses []netip.Addr, ports []int, timeout time.Duration, concurrency int) Result {
 	type job struct {
 		addr netip.Addr
 		port int
@@ -34,7 +52,7 @@ func ScanWithDialer(ctx context.Context, dial DialFunc, addresses []netip.Addr, 
 		concurrency = 1
 	}
 	jobs := make(chan job)
-	result := make(map[string][]int)
+	res := Result{Open: map[string][]int{}, Alive: map[string]bool{}}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -51,10 +69,17 @@ func ScanWithDialer(ctx context.Context, dial DialFunc, addresses []netip.Addr, 
 				dctx, cancel := context.WithTimeout(ctx, timeout)
 				c, err := dialFn(dctx, "tcp", net.JoinHostPort(j.addr.String(), strconv.Itoa(j.port)))
 				cancel()
-				if err == nil {
+				key := j.addr.String()
+				switch {
+				case err == nil:
 					c.Close()
 					mu.Lock()
-					result[j.addr.String()] = append(result[j.addr.String()], j.port)
+					res.Open[key] = append(res.Open[key], j.port)
+					res.Alive[key] = true
+					mu.Unlock()
+				case errors.Is(err, syscall.ECONNREFUSED):
+					mu.Lock()
+					res.Alive[key] = true
 					mu.Unlock()
 				}
 			}
@@ -72,8 +97,8 @@ send:
 	}
 	close(jobs)
 	wg.Wait()
-	for k := range result {
-		sort.Ints(result[k])
+	for k := range res.Open {
+		sort.Ints(res.Open[k])
 	}
-	return result
+	return res
 }

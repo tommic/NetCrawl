@@ -32,7 +32,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["serve", "--listen", "127.0.0.1:${NETCRAWL_PORT:-8080}"]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    command: ["serve", "--listen", "127.0.0.1:${NETCRAWL_PORT:-8080}", "--event-log-dir", "/data/events", "--scheduler-interval", "15s"]
+    volumes:
+      - ./data:/data
     environment:
       NETCRAWL_DATABASE_URL: postgres://netcrawl:${NETCRAWL_DB_PASSWORD}@127.0.0.1:${NETCRAWL_DB_PORT:-55432}/netcrawl?sslmode=disable
 

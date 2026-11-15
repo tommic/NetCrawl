@@ -67,19 +67,19 @@ func TestLoadConfigErrors(t *testing.T) {
 		mutate func(m map[string]any)
 		want   string
 	}{
-		"version":        {func(m map[string]any) { m["version"] = 2 }, "version"},
-		"crawler id":     {func(m map[string]any) { delete(m, "crawler_id") }, "crawler_id"},
-		"interval":       {func(m map[string]any) { m["polling"] = map[string]int{"interval_seconds": 30} }, "interval_seconds"},
-		"http remote":    {func(m map[string]any) { m["server_url"] = "http://192.168.1.5:8080" }, "https"},
-		"url path":       {func(m map[string]any) { m["server_url"] = "https://srv.example/api" }, "plain"},
-		"url scheme":     {func(m map[string]any) { m["server_url"] = "ftp://127.0.0.1" }, "scheme"},
-		"wide allowlist": {func(m map[string]any) { m["limits"] = map[string]any{"allow": []string{"127.0.0.0/8"}, "max_hosts": 1} }, "loopback pilot"},
-		"lan allowlist": {func(m map[string]any) {
-			m["limits"] = map[string]any{"allow": []string{"192.168.1.0/24"}, "max_hosts": 1}
-		}, "loopback pilot"},
+		"version":     {func(m map[string]any) { m["version"] = 2 }, "version"},
+		"crawler id":  {func(m map[string]any) { delete(m, "crawler_id") }, "crawler_id"},
+		"interval":    {func(m map[string]any) { m["polling"] = map[string]int{"interval_seconds": 30} }, "interval_seconds"},
+		"http remote": {func(m map[string]any) { m["server_url"] = "http://192.168.1.5:8080" }, "https"},
+		"url path":    {func(m map[string]any) { m["server_url"] = "https://srv.example/api" }, "plain"},
+		"url scheme":  {func(m map[string]any) { m["server_url"] = "ftp://127.0.0.1" }, "scheme"},
+		"public range": {func(m map[string]any) {
+			m["limits"] = map[string]any{"allow": []string{"8.8.8.0/24"}, "max_hosts": 256}
+		}, "not a private"},
+		"no allowlist": {func(m map[string]any) { m["limits"] = map[string]any{"max_hosts": 1} }, "allowlist is empty"},
 		"max hosts": {func(m map[string]any) {
-			m["limits"] = map[string]any{"allow": []string{"127.0.0.1/32"}, "max_hosts": 2}
-		}, "loopback pilot"},
+			m["limits"] = map[string]any{"allow": []string{"127.0.0.1/32"}, "max_hosts": 0}
+		}, "host limit"},
 		"no lock":        {func(m map[string]any) { m["lock_file"] = "" }, "lock_file"},
 		"unknown key":    {func(m map[string]any) { m["scan_everything"] = true }, "unknown field"},
 		"missing secret": {func(m map[string]any) { m["secret_file"] = "missing" }, "secret_file"},
@@ -131,6 +131,18 @@ func TestServerURL(t *testing.T) {
 	} {
 		if err := checkServerURL(url); (err == nil) != ok {
 			t.Errorf("checkServerURL(%q) = %v, want ok=%v", url, err, ok)
+		}
+	}
+}
+
+func TestReleasedNetworks(t *testing.T) {
+	for _, limits := range []map[string]any{
+		{"allow": []string{"192.168.1.0/24"}, "max_hosts": 256},
+		{"allow": []string{"10.0.0.0/16", "127.0.0.0/8"}, "max_hosts": 65536},
+		{"allow": []string{"8.8.8.0/24"}, "max_hosts": 256, "allow_public_ranges": true},
+	} {
+		if _, err := LoadConfig(writeAgentFiles(t, func(m map[string]any) { m["limits"] = limits }, 0o600)); err != nil {
+			t.Errorf("limits %v: %v", limits, err)
 		}
 	}
 }

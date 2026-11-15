@@ -12,16 +12,29 @@ import (
 	"netcrawler/internal/iprange"
 )
 
-// PilotTarget is the only scope released for this version: the
-// loopback-only pilot (see docs/E2E-ABNAHME.md). Any other scope needs a
-// documented approval first and a code change that lifts PilotOnly.
-const PilotTarget = "127.0.0.1/32"
+// MaxHostsLimit is the highest host limit a crawler may have (a /16).
+const MaxHostsLimit = 1 << 16
 
-// PilotMaxHosts is the host limit of the loopback pilot.
-const PilotMaxHosts = 1
+// privateRanges are the address ranges a crawler may be released for
+// without explicitly allowing public ranges: RFC 1918, loopback,
+// link-local and carrier-grade NAT.
+var privateRanges = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+}
 
-// PilotOnly restricts every scope to the loopback pilot.
-const PilotOnly = true
+func isPrivate(r iprange.Range) bool {
+	for _, p := range privateRanges {
+		if p.Contains(r.First) && p.Contains(r.Last) {
+			return true
+		}
+	}
+	return false
+}
 
 // MaxPortsPerJob bounds the number of ports in one job.
 const MaxPortsPerJob = 1024
@@ -61,17 +74,25 @@ func (a Allowlist) covers(r iprange.Range) bool {
 	return false
 }
 
-// CheckPilot enforces the loopback pilot: the allowlist must be exactly
-// 127.0.0.1/32 and the host limit exactly 1.
-func CheckPilot(allow []string, maxHosts int) error {
-	if !PilotOnly {
-		return nil
+// CheckRelease validates what a crawler is released to scan: the allowlist
+// must be non-empty and valid, and the host limit between 1 and
+// MaxHostsLimit. Unless allowPublic is set, every entry must lie in a
+// private range (RFC 1918, loopback, link-local, CGNAT), so a typo can't
+// release a public network.
+func CheckRelease(allow []string, maxHosts int, allowPublic bool) error {
+	a, err := ParseAllowlist(allow)
+	if err != nil {
+		return err
 	}
-	if len(allow) != 1 || allow[0] != PilotTarget {
-		return fmt.Errorf("only the loopback pilot is released: allowlist must be exactly [%q], got %q", PilotTarget, allow)
+	if maxHosts < 1 || maxHosts > MaxHostsLimit {
+		return fmt.Errorf("host limit must be between 1 and %d, got %d", MaxHostsLimit, maxHosts)
 	}
-	if maxHosts != PilotMaxHosts {
-		return fmt.Errorf("only the loopback pilot is released: host limit must be %d, got %d", PilotMaxHosts, maxHosts)
+	if !allowPublic {
+		for i, r := range a.ranges {
+			if !isPrivate(r) {
+				return fmt.Errorf("allowlist entry %q is not a private address range; public ranges need an explicit allow_public_ranges", a.entries[i])
+			}
+		}
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"netcrawler/internal/iprange"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/scope"
 	"netcrawler/internal/store"
@@ -55,7 +56,7 @@ func CreateCrawler(ctx context.Context, st store.Store, actor string, req Crawle
 	if req.MaxHosts < 1 {
 		return store.Crawler{}, "", invalid("max_hosts must be at least 1")
 	}
-	if err := scope.CheckPilot(req.Allow, req.MaxHosts); err != nil {
+	if err := scope.CheckRelease(req.Allow, req.MaxHosts, false); err != nil {
 		return store.Crawler{}, "", invalid("%v", err)
 	}
 	secret, err := protocol.NewKey()
@@ -78,10 +79,16 @@ func CreateCrawler(ctx context.Context, st store.Store, actor string, req Crawle
 type JobRequest struct {
 	CrawlerID  string   `json:"crawler_id"`
 	Targets    []string `json:"targets"`
+	Deny       []string `json:"deny"`
 	Ports      []int    `json:"ports"`
 	MaxHosts   int      `json:"max_hosts"`
 	TimeoutMs  int      `json:"timeout_ms"`
 	TTLSeconds int      `json:"ttl_seconds"`
+	// Kind is "ports" (default) or "discovery".
+	Kind       string `json:"kind"`
+	ReverseDNS bool   `json:"reverse_dns"`
+	// NetworkID links scheduler jobs to their network (not settable via API).
+	NetworkID *int64 `json:"-"`
 }
 
 // CreateJob validates a job against the crawler's server-side allowlist and
@@ -120,6 +127,18 @@ func CreateJob(ctx context.Context, st store.Store, actor string, req JobRequest
 	if _, err := scope.Check(scope.Request{Targets: req.Targets, MaxHosts: req.MaxHosts, Ports: req.Ports}, allow, c.MaxHosts); err != nil {
 		return store.Job{}, invalid("%v", err)
 	}
+	switch req.Kind {
+	case "":
+		req.Kind = protocol.JobKindPorts
+	case protocol.JobKindPorts, protocol.JobKindDiscovery:
+	default:
+		return store.Job{}, invalid("kind must be %q or %q", protocol.JobKindPorts, protocol.JobKindDiscovery)
+	}
+	for _, d := range req.Deny {
+		if _, err := iprange.Parse(d); err != nil {
+			return store.Job{}, invalid("deny: %v", err)
+		}
+	}
 
 	id, err := protocol.NewID()
 	if err != nil {
@@ -131,7 +150,8 @@ func CreateJob(ctx context.Context, st store.Store, actor string, req JobRequest
 	}
 	now = now.UTC()
 	j := store.Job{
-		ID: id, CrawlerID: c.ID, Targets: req.Targets, Ports: req.Ports, MaxHosts: req.MaxHosts,
+		ID: id, CrawlerID: c.ID, Targets: req.Targets, Deny: req.Deny, Ports: req.Ports, MaxHosts: req.MaxHosts,
+		Kind: req.Kind, ReverseDNS: req.ReverseDNS, NetworkID: req.NetworkID,
 		TimeoutMs: req.TimeoutMs, ResultToken: token, Status: store.JobPending, CreatedBy: actor,
 		CreatedAt: now, ExpiresAt: now.Add(ttl),
 	}
@@ -139,7 +159,7 @@ func CreateJob(ctx context.Context, st store.Store, actor string, req JobRequest
 		return store.Job{}, err
 	}
 	_ = st.Audit(ctx, actor, "job.create", map[string]any{
-		"job_id": j.ID, "crawler_id": j.CrawlerID, "targets": j.Targets, "ports": j.Ports,
+		"job_id": j.ID, "crawler_id": j.CrawlerID, "kind": j.Kind, "targets": j.Targets, "deny": j.Deny, "ports": j.Ports,
 		"max_hosts": j.MaxHosts, "expires_at": j.ExpiresAt,
 	})
 	return j, nil

@@ -25,6 +25,9 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"SubmitExpired":  testSubmitExpired,
 		"SubmitOrdering": testSubmitOrdering,
 		"Audit":          testAudit,
+		"Networks":       testNetworks,
+		"NetworkJobs":    testNetworkJobs,
+		"Inventory":      testInventory,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, newStore(t)) })
@@ -291,5 +294,210 @@ func testAudit(t *testing.T, s store.Store) {
 	}
 	if list, _ := s.ListAudit(ctx, 1); len(list) != 1 {
 		t.Errorf("limit not applied: %d", len(list))
+	}
+}
+
+func addNetwork(t *testing.T, s store.Store, crawlerID, name string) store.Network {
+	t.Helper()
+	n := store.Network{
+		CrawlerID: crawlerID, Name: name, Targets: []string{"127.0.0.0/30"}, Deny: []string{"127.0.0.3"},
+		DiscoveryPorts: []int{22, 80}, ScanPorts: []int{22, 80, 443},
+		DiscoveryInterval: 30 * time.Minute, PortscanInterval: 24 * time.Hour,
+		OfflineInfoAfter: 24 * time.Hour, OfflineWarnAfter: 7 * 24 * time.Hour,
+		ReverseDNS: true, Enabled: true, CreatedAt: t0,
+	}
+	id, err := s.CreateNetwork(context.Background(), n)
+	mustNoErr(t, err)
+	n.ID = id
+	return n
+}
+
+func testNetworks(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	addCrawler(t, s, "lab-1")
+	n := addNetwork(t, s, "lab-1", "Heimnetz")
+	_, err := s.CreateNetwork(ctx, store.Network{CrawlerID: "lab-1", Name: "Heimnetz", Targets: []string{"10.0.0.0/24"},
+		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, CreatedAt: t0})
+	wantErr(t, err, store.ErrExists)
+	_, err = s.CreateNetwork(ctx, store.Network{CrawlerID: "nope", Name: "x", Targets: []string{"10.0.0.0/24"},
+		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, CreatedAt: t0})
+	wantErr(t, err, store.ErrNotFound)
+
+	got, err := s.Network(ctx, n.ID)
+	mustNoErr(t, err)
+	if got.Name != "Heimnetz" || len(got.Targets) != 1 || len(got.Deny) != 1 || len(got.ScanPorts) != 3 ||
+		got.DiscoveryInterval != 30*time.Minute || got.OfflineWarnAfter != 7*24*time.Hour || !got.ReverseDNS ||
+		!got.Enabled || got.BaselineDone || got.LastDiscoveryAt != nil {
+		t.Errorf("network = %+v", got)
+	}
+
+	got.Name, got.Enabled, got.DiscoveryInterval, got.Deny = "Büro", false, time.Hour, nil
+	mustNoErr(t, s.UpdateNetworkSettings(ctx, got))
+	ld, lp := t0.Add(time.Minute), t0.Add(2*time.Minute)
+	mustNoErr(t, s.UpdateNetworkSchedule(ctx, n.ID, &ld, &lp))
+	got, _ = s.Network(ctx, n.ID)
+	if got.Name != "Büro" || got.Enabled || got.DiscoveryInterval != time.Hour || len(got.Deny) != 0 ||
+		got.LastDiscoveryAt == nil || !got.LastDiscoveryAt.Equal(ld) || !got.LastPortscanAt.Equal(lp) {
+		t.Errorf("updated network = %+v", got)
+	}
+	got.ID = 999
+	wantErr(t, s.UpdateNetworkSettings(ctx, got), store.ErrNotFound)
+	_, err = s.Network(ctx, 999)
+	wantErr(t, err, store.ErrNotFound)
+
+	addNetwork(t, s, "lab-1", "Zweitnetz")
+	list, err := s.ListNetworks(ctx)
+	mustNoErr(t, err)
+	if len(list) != 2 || list[0].ID != n.ID {
+		t.Errorf("list = %+v", list)
+	}
+	other := list[1]
+	other.Name = "Büro"
+	wantErr(t, s.UpdateNetworkSettings(ctx, other), store.ErrExists)
+}
+
+func testNetworkJobs(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	addCrawler(t, s, "lab-1")
+	n := addNetwork(t, s, "lab-1", "Heimnetz")
+	id, _ := protocol.NewID()
+	token, _ := protocol.NewKey()
+	j := store.Job{
+		ID: id, CrawlerID: "lab-1", NetworkID: &n.ID, Kind: "discovery", Targets: []string{"127.0.0.0/30"},
+		Deny: []string{"127.0.0.3"}, ReverseDNS: true, Ports: []int{22}, MaxHosts: 4, TimeoutMs: 500,
+		ResultToken: token, Status: store.JobPending, CreatedBy: "scheduler", CreatedAt: t0, ExpiresAt: t0.Add(10 * time.Minute),
+	}
+	mustNoErr(t, s.CreateJob(ctx, j))
+	got, err := s.Job(ctx, id)
+	mustNoErr(t, err)
+	if got.NetworkID == nil || *got.NetworkID != n.ID || got.Kind != "discovery" || len(got.Deny) != 1 || !got.ReverseDNS {
+		t.Errorf("job = %+v", got)
+	}
+	plain := addJob(t, s, "lab-1", t0, time.Minute)
+	if got, _ := s.Job(ctx, plain.ID); got.Kind != "ports" || got.NetworkID != nil {
+		t.Errorf("plain job defaults = %+v", got)
+	}
+
+	count := func(kind string, now time.Time) int {
+		c, err := s.OpenNetworkJobs(ctx, n.ID, kind, now)
+		mustNoErr(t, err)
+		return c
+	}
+	if count("discovery", t0) != 1 || count("ports", t0) != 0 || count("discovery", t0.Add(10*time.Minute)) != 0 {
+		t.Error("OpenNetworkJobs counts wrong")
+	}
+	if _, ok, _ := s.NextJob(ctx, "lab-1", t0); !ok {
+		t.Fatal("no job delivered")
+	}
+	if count("discovery", t0) != 1 {
+		t.Error("delivered jobs are still open")
+	}
+}
+
+func testInventory(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	addCrawler(t, s, "lab-1")
+	n := addNetwork(t, s, "lab-1", "Heimnetz")
+	m := addNetwork(t, s, "lab-1", "Zweitnetz")
+	scanned := t0.Add(time.Minute)
+
+	err := s.UpdateInventory(ctx, n.ID, func(net *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
+		if len(hosts) != 0 || net.Name != "Heimnetz" {
+			t.Errorf("initial state: %+v %v", net, hosts)
+		}
+		hosts["127.0.0.10"] = &store.Host{Hostname: "b", FirstSeen: t0, LastSeen: t0}
+		hosts["127.0.0.9"] = &store.Host{Hostname: "a", FirstSeen: t0, LastSeen: t0, PortsScannedAt: &scanned,
+			Ports: []store.HostPort{{Port: 443, FirstSeen: t0, LastSeen: t0}, {Port: 22, FirstSeen: t0, LastSeen: t0}}}
+		hosts["127.0.0.11"] = &store.Host{FirstSeen: t0, LastSeen: t0} // not in changed: not stored
+		net.BaselineDone = true
+		net.DiscoveryDoneAt = &scanned
+		return []string{"127.0.0.9", "127.0.0.10"}, []store.Event{
+			{At: t0, IP: "127.0.0.9", Type: "host.new", Severity: store.SeverityInfo, Message: "neu", Baseline: true},
+			{At: t0.Add(time.Second), IP: "127.0.0.9", Type: "port.opened", Severity: store.SeverityWarning, Message: "Port 22",
+				Details: json.RawMessage(`{"port":22}`), JobID: "job-1"},
+		}, nil
+	})
+	mustNoErr(t, err)
+
+	hosts, err := s.Hosts(ctx, n.ID)
+	mustNoErr(t, err)
+	if len(hosts) != 2 || hosts[0].IP != "127.0.0.9" || hosts[1].IP != "127.0.0.10" {
+		t.Fatalf("hosts (numeric order) = %+v", hosts)
+	}
+	h := hosts[0]
+	if h.NetworkID != n.ID || h.Hostname != "a" || len(h.Ports) != 2 || h.Ports[0].Port != 22 || h.PortsScannedAt == nil {
+		t.Errorf("host = %+v", h)
+	}
+	got, _ := s.Network(ctx, n.ID)
+	if !got.BaselineDone || got.DiscoveryDoneAt == nil || !got.DiscoveryDoneAt.Equal(scanned) {
+		t.Errorf("inventory state not saved: %+v", got)
+	}
+
+	// Second update sees the stored state and can remove ports.
+	err = s.UpdateInventory(ctx, n.ID, func(net *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
+		h := hosts["127.0.0.9"]
+		if h == nil || len(h.Ports) != 2 || len(hosts) != 2 {
+			t.Fatalf("stored state not loaded: %v", hosts)
+		}
+		h.Ports = h.Ports[:1]
+		h.OfflineLevel = store.SeverityInfo
+		return []string{"127.0.0.9"}, nil, nil
+	})
+	mustNoErr(t, err)
+	hosts, _ = s.Hosts(ctx, n.ID)
+	if len(hosts[0].Ports) != 1 || hosts[0].OfflineLevel != store.SeverityInfo {
+		t.Errorf("after update: %+v", hosts[0])
+	}
+
+	// A failing update changes nothing.
+	boom := errors.New("boom")
+	err = s.UpdateInventory(ctx, n.ID, func(net *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
+		hosts["127.0.0.9"].Hostname = "changed"
+		return []string{"127.0.0.9"}, nil, boom
+	})
+	wantErr(t, err, boom)
+	if hosts, _ := s.Hosts(ctx, n.ID); hosts[0].Hostname != "a" {
+		t.Error("failed update was stored")
+	}
+	wantErr(t, s.UpdateInventory(ctx, 999, func(*store.Network, map[string]*store.Host) ([]string, []store.Event, error) {
+		return nil, nil, nil
+	}), store.ErrNotFound)
+
+	mustNoErr(t, s.SetHostImportant(ctx, n.ID, "127.0.0.10", true))
+	wantErr(t, s.SetHostImportant(ctx, n.ID, "127.0.0.99", true), store.ErrNotFound)
+	if hosts, _ := s.Hosts(ctx, n.ID); !hosts[1].Important {
+		t.Error("important flag not stored")
+	}
+
+	mustNoErr(t, s.UpdateInventory(ctx, m.ID, func(net *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
+		hosts["127.0.0.1"] = &store.Host{FirstSeen: t0, LastSeen: t0}
+		return []string{"127.0.0.1"}, []store.Event{{At: t0.Add(time.Hour), IP: "127.0.0.1", Type: "host.new", Severity: store.SeverityInfo, Message: "neu"}}, nil
+	}))
+	if all, _ := s.Hosts(ctx, 0); len(all) != 3 || all[0].NetworkID != n.ID || all[2].NetworkID != m.ID {
+		t.Errorf("all hosts = %+v", all)
+	}
+
+	events, err := s.ListEvents(ctx, store.EventFilter{Limit: 10})
+	mustNoErr(t, err)
+	if len(events) != 2 || events[0].NetworkID != m.ID || events[1].Type != "port.opened" || events[1].JobID != "job-1" {
+		t.Fatalf("events without baseline, newest first = %+v", events)
+	}
+	var d map[string]int
+	if err := json.Unmarshal(events[1].Details, &d); err != nil || d["port"] != 22 {
+		t.Errorf("details = %s", events[1].Details)
+	}
+	if ev, _ := s.ListEvents(ctx, store.EventFilter{IncludeBaseline: true, Limit: 10}); len(ev) != 3 {
+		t.Errorf("with baseline: %d events", len(ev))
+	}
+	if ev, _ := s.ListEvents(ctx, store.EventFilter{NetworkID: n.ID, IncludeBaseline: true}); len(ev) != 2 {
+		t.Errorf("network filter: %d events", len(ev))
+	}
+	if ev, _ := s.ListEvents(ctx, store.EventFilter{IP: "127.0.0.1"}); len(ev) != 1 {
+		t.Errorf("ip filter: %d events", len(ev))
+	}
+	if ev, _ := s.ListEvents(ctx, store.EventFilter{IncludeBaseline: true, Limit: 1}); len(ev) != 1 || ev[0].NetworkID != m.ID {
+		t.Errorf("limit: %+v", ev)
 	}
 }

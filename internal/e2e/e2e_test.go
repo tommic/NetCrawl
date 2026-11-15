@@ -211,7 +211,7 @@ func describe(r recordedRequest) string {
 }
 
 // dialRecorder records every scan connection attempt. It refuses
-// (without connecting) anything but 127.0.0.1, as a last safety net.
+// (without connecting) anything outside 127.0.0.0/8, as a last safety net.
 type dialRecorder struct {
 	mu    sync.Mutex
 	addrs []string
@@ -222,7 +222,7 @@ func (d *dialRecorder) Dial(ctx context.Context, network, address string) (net.C
 	d.addrs = append(d.addrs, address)
 	d.mu.Unlock()
 	host, _, err := net.SplitHostPort(address)
-	if err != nil || host != "127.0.0.1" {
+	if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() || ip.To4() == nil {
 		return nil, fmt.Errorf("e2e safety net: refusing connection to %s", address)
 	}
 	var nd net.Dialer
@@ -268,6 +268,9 @@ type env struct {
 	openPort int
 	agent    *agent.Agent
 	admin    *http.Client
+	server   *server.Server
+	allow    []string
+	maxHosts int
 }
 
 const (
@@ -323,6 +326,12 @@ func newStore(t *testing.T) (store.Store, string) {
 
 func setup(t *testing.T, id, name string) *env {
 	t.Helper()
+	return setupCrawler(t, id, name, []string{"127.0.0.1/32"}, 1)
+}
+
+// setupCrawler is setup with a crawler released for allow/maxHosts.
+func setupCrawler(t *testing.T, id, name string, allow []string, maxHosts int) *env {
+	t.Helper()
 	st, storeName := newStore(t)
 	e := &env{
 		t:        t,
@@ -330,6 +339,8 @@ func setup(t *testing.T, id, name string) *env {
 		srvClock: &clock{now: time.Now().UTC().Truncate(time.Second)},
 		dir:      t.TempDir(),
 		dials:    &dialRecorder{},
+		allow:    allow,
+		maxHosts: maxHosts,
 	}
 	e.agClock = &clock{now: e.srvClock.Now()}
 	e.ev = &evidence{ID: id, Case: name, Time: time.Now(), Store: storeName}
@@ -345,6 +356,7 @@ func setup(t *testing.T, id, name string) *env {
 	})
 
 	srv := server.New(st, server.Options{Now: e.srvClock.Now, Logger: discardLogger()})
+	e.server = srv
 	hs := httptest.NewServer(srv.Handler())
 	t.Cleanup(hs.Close)
 	e.url = hs.URL
@@ -359,7 +371,7 @@ func setup(t *testing.T, id, name string) *env {
 	e.rec = &recorder{base: http.DefaultTransport}
 
 	_, secret, err := server.CreateCrawler(context.Background(), st, "e2e", server.CrawlerRequest{
-		ID: crawlerID, Allow: []string{"127.0.0.1/32"}, MaxHosts: 1,
+		ID: crawlerID, Allow: allow, MaxHosts: maxHosts,
 	}, e.srvClock.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -394,7 +406,7 @@ func (e *env) writeConfig(interval int) string {
 		"server_url":  e.url,
 		"secret_file": "agent.secret",
 		"polling":     map[string]int{"interval_seconds": interval},
-		"limits":      map[string]any{"allow": []string{"127.0.0.1/32"}, "max_hosts": 1},
+		"limits":      map[string]any{"allow": e.allow, "max_hosts": e.maxHosts},
 		"lock_file":   "agent.lock",
 	}
 	data, _ := json.MarshalIndent(cfg, "", "  ")
