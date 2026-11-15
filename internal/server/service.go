@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"netcrawler/internal/iprange"
@@ -88,6 +89,50 @@ func SetCrawlerEnabled(ctx context.Context, st store.Store, actor, id string, en
 		action = "crawler.enable"
 	}
 	_ = st.Audit(ctx, actor, action, map[string]any{"id": id})
+	return nil
+}
+
+// UpdateCrawlerRelease changes what a crawler may scan on the server side.
+// All networks of the crawler must fit into the new release. Open jobs
+// expire. The crawler keeps its old local limits until it is reinstalled
+// (by design: a server cannot widen them remotely), so it is marked as
+// needing a reinstall.
+func UpdateCrawlerRelease(ctx context.Context, st store.Store, actor, id string, allow []string, maxHosts int, now time.Time) error {
+	c, err := st.Crawler(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return invalid("unknown crawler %q", id)
+	}
+	if err != nil {
+		return err
+	}
+	if err := scope.CheckRelease(allow, maxHosts, false); err != nil {
+		return invalid("%v", err)
+	}
+	if slices.Equal(allow, c.Allow) && maxHosts == c.MaxHosts {
+		return invalid("the release is unchanged")
+	}
+	parsed, err := scope.ParseAllowlist(allow)
+	if err != nil {
+		return invalid("allow: %v", err)
+	}
+	nets, err := st.ListNetworks(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range nets {
+		if n.CrawlerID != id {
+			continue
+		}
+		if _, err := scope.Check(scope.Request{Targets: n.Targets, MaxHosts: maxHosts, Ports: n.DiscoveryPorts}, parsed, maxHosts); err != nil {
+			return invalid("network %q does not fit into the new release: %v", n.Name, err)
+		}
+	}
+	if err := st.UpdateCrawlerRelease(ctx, id, allow, maxHosts, now.UTC()); err != nil {
+		return err
+	}
+	_ = st.Audit(ctx, actor, "crawler.release", map[string]any{
+		"id": id, "old_allow": c.Allow, "old_max_hosts": c.MaxHosts, "allow": allow, "max_hosts": maxHosts,
+	})
 	return nil
 }
 

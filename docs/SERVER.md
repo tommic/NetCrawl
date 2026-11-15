@@ -90,7 +90,7 @@ cp .env.example .env
 In `.env` setzen:
 
 - `NETCRAWL_DB_PASSWORD`: langes Zufallspasswort, z. B. aus `openssl rand -base64 32`
-- `NETCRAWL_PUBLIC_URL`: wie die Crawler den Server erreichen, z. B. `https://192.168.1.5:8443` (IP des Servers) oder `https://netcrawl.example.org`
+- `NETCRAWL_PUBLIC_URL` (optional): wie die Crawler den Server erreichen, z. B. `https://192.168.1.5:8443` (IP des Servers) oder `https://netcrawl.example.org`. Ohne diese Einstellung schlägt die Weboberfläche unter **Crawler** die Adresse vor, unter der sie gerade geöffnet ist; ein Klick auf „Übernehmen“ speichert sie.
 
 ```bash
 docker compose up -d --build
@@ -131,7 +131,7 @@ Nach spätestens einer Minute steht der Crawler in der Oberfläche auf „online
 
 - `-k --pinnedpubkey`: curl prüft statt einer CA exakt den Schlüssel des Servers. Ein anderer Server (z. B. ein Angreifer im Netz) wird abgewiesen, bevor Daten fließen.
 - Der Code gilt **einmal** und **30 Minuten**. Ein neuer Code macht den vorherigen ungültig. Wer `curl | sh` nicht mag: In der Oberfläche unter „Skript erst ansehen, dann ausführen“ steht die Variante zum Herunterladen und Prüfen.
-- Die lokale Freigabe kann der Server danach nicht mehr ausweiten. Um sie zu ändern, Crawler neu anlegen und neu installieren.
+- Die lokale Freigabe kann der Server danach nicht mehr ausweiten (siehe „Freigabe ändern“).
 - Logs: `journalctl -u netcrawl-agent -f`. Deinstallation: `curl -fsS -k --pinnedpubkey 'sha256//…' https://<Server>:8443/install/uninstall | sudo sh`.
 - In unprivilegierten LXC-Containern ohne „nesting“ kann systemd die Dateisystem-Sandbox nicht einrichten. Das Skript erkennt das und startet den Dienst dann mit reduzierter Absicherung (weiterhin eigener Benutzer, keine Capabilities).
 
@@ -142,7 +142,15 @@ docker compose run --rm server crawler add --id lan-1 --allow 192.168.1.0/24 --m
 docker compose run --rm server crawler install --id lan-1 --reverse-dns
 ```
 
-**Crawler sperren** (z. B. Gerät verloren): in der Oberfläche „Deaktivieren“ oder `crawler disable --id lan-1`. Er bekommt keine Jobs mehr, seine Abfragen und Ergebnisse werden abgelehnt.
+**Freigabe ändern** (z. B. weiteres Netz): unter **Crawler** auf „Freigabe ändern“. Danach muss der Crawler **neu installiert** werden – mit Absicht: Die Freigabe ist auf dem Crawler-Rechner fest hinterlegt, damit ein kompromittierter Server die Grenzen eines Crawlers nicht aus der Ferne erweitern kann. Ablauf:
+
+1. Neue Freigabe eintragen. Alle Netze des Crawlers müssen hineinpassen, sonst wird die Änderung abgelehnt.
+2. Offene Jobs verfallen; der Crawler steht auf „Neuinstallation nötig“ und scannt bis dahin nur innerhalb seiner alten Freigabe.
+3. Den angezeigten Installationsbefehl auf dem Crawler-Rechner ausführen. Das Skript erkennt die vorhandene Installation und ersetzt sie vollständig (Dienst, Konfiguration, Secret, Lock). Netze, Inventar und Verlauf bleiben erhalten.
+
+Läuft der Crawler danach auf einem **anderen** Rechner, auf dem alten aufräumen: `curl -fsS -k --pinnedpubkey 'sha256//…' https://<Server>:8443/install/uninstall | sudo sh` (steht auch in der Oberfläche unter „Alte Installation entfernen“). Ein alter Crawler, dessen Secret ersetzt wurde, beendet sich ohnehin nach drei abgelehnten Abfragen (Exit-Code 3, systemd startet ihn nicht neu).
+
+**Crawler sperren** (z. B. Gerät verloren): in der Oberfläche „Deaktivieren“ oder `crawler disable --id lan-1`. Er bekommt keine Jobs mehr, seine Abfragen und Ergebnisse werden abgelehnt; nach drei abgelehnten Abfragen beendet sich der Crawler-Dienst. Nach dem Entsperren auf dem Crawler-Rechner `sudo systemctl start netcrawl-agent`.
 
 ### 4. Netz anlegen
 
@@ -166,7 +174,7 @@ docker compose run --rm server network scan --id 1 --kind discovery   # sofort e
 
 Für andere Systeme oder die Docker-Variante: Mit `crawler add` erhält man das Secret (einmalig angezeigt). Dann `agent.secret` (Rechte `600`) und `agent.json` nach `configs/agent.example.json` anlegen, mit **derselben Freigabe** unter `limits` und bei selbstsigniertem Zertifikat `"tls_pin": "sha256//…"` (steht im Server-Log). Start: `netcrawl-agent --config agent.json` (`--once` für einen einzelnen Abruf).
 
-Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `crawler_id`, `polling.interval_seconds >= 60`, gültige Freigabe (private Bereiche, Hostlimit), kein bereits laufender Crawl (Lock-Datei). Schlägt etwas fehl, beendet er sich ohne Request. Exit-Codes bei `--once`: `0` ok, `1` Fehler, `2` Job lokal abgelehnt.
+Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `crawler_id`, `polling.interval_seconds >= 60`, gültige Freigabe (private Bereiche, Hostlimit), kein bereits laufender Crawl (Lock-Datei). Schlägt etwas fehl, beendet er sich ohne Request. Exit-Codes bei `--once`: `0` ok, `1` Fehler, `2` Job lokal abgelehnt. Im Dauerbetrieb: `3`, wenn der Server den Crawler dreimal in Folge ablehnt.
 
 ## Admin-API
 
@@ -175,7 +183,8 @@ Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `craw
 | `POST` | `/api/v1/admin/login`, `/logout` | An-/Abmelden (Session-Cookie) |
 | `GET` | `/api/v1/admin/me` | aktueller Benutzer |
 | `GET`/`POST` | `/api/v1/admin/crawlers` | Crawler auflisten / registrieren (Secret einmalig in der Antwort) |
-| `PUT` | `/api/v1/admin/crawlers/{id}` | `{"enabled": false}` sperrt, `true` entsperrt |
+| `PUT` | `/api/v1/admin/crawlers/{id}` | `{"enabled": false}` sperrt, `true` entsperrt; `{"allow": [...], "max_hosts": N}` ändert die Freigabe (danach Neuinstallation) |
+| `GET`/`PUT` | `/api/v1/admin/settings/public-url` | Server-Adresse für Installationsbefehle (wenn nicht per `NETCRAWL_PUBLIC_URL` gesetzt) |
 | `POST` | `/api/v1/admin/crawlers/{id}/enroll` | `{"reverse_dns": true}` → Installationsbefehl mit Einmal-Code |
 | `GET`/`POST` | `/api/v1/admin/networks` | Netze auflisten / anlegen |
 | `PUT` | `/api/v1/admin/networks/{id}` | Netz ändern (z. B. `"enabled": false`) |

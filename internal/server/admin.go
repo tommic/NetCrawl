@@ -159,7 +159,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name: SessionCookie, Value: token, Path: "/", Expires: expires,
 		HttpOnly: true, Secure: s.secure, SameSite: s.sameSite(),
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC(), "installer": s.install != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC(), "installer": s.installConfig(r.Context()) != nil})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +171,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"username": adminFrom(r.Context()).Username, "installer": s.install != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"username": adminFrom(r.Context()).Username, "installer": s.installConfig(r.Context()) != nil})
 }
 
 // CrawlerView is the API representation of a crawler (without secret).
@@ -182,10 +182,13 @@ type CrawlerView struct {
 	Enabled    bool       `json:"enabled"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	// ReinstallRequired: the release was changed; the crawler still runs
+	// with its old local limits until it is reinstalled.
+	ReinstallRequired bool `json:"reinstall_required"`
 }
 
 func crawlerView(c store.Crawler) CrawlerView {
-	return CrawlerView{c.ID, c.Allow, c.MaxHosts, c.Enabled, c.CreatedAt, c.LastSeenAt}
+	return CrawlerView{c.ID, c.Allow, c.MaxHosts, c.Enabled, c.CreatedAt, c.LastSeenAt, c.ReinstallRequired}
 }
 
 func (s *Server) handleListCrawlers(w http.ResponseWriter, r *http.Request) {

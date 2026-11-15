@@ -21,6 +21,9 @@ import (
 	"netcrawler/internal/version"
 )
 
+// ExitCredentialsRejected: the server no longer accepts this crawler.
+const ExitCredentialsRejected = 3
+
 func main() {
 	os.Exit(run())
 }
@@ -79,6 +82,11 @@ func run() int {
 	}
 	if err := a.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logf("[ERROR] %v", err)
+		if errors.Is(err, agent.ErrCredentialsRejected) {
+			// The systemd unit does not restart on this status.
+			logf("[ERROR] stopping. Remove this installation (uninstall command in the web UI) or, if it should keep running, reinstall it from the web UI. Check the clock with: timedatectl")
+			return ExitCredentialsRejected
+		}
 		return 1
 	}
 	return 0

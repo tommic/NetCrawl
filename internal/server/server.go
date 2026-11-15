@@ -44,25 +44,29 @@ type Options struct {
 	Embeddable bool
 	// EventLog receives inventory events as JSON lines (optional).
 	EventLog *eventlog.Writer
-	// Install enables the crawler installer (optional, see InstallConfig).
-	Install *InstallConfig
+	// Install enables the crawler installer with a fixed public URL
+	// (NETCRAWL_PUBLIC_URL). Without it, the admin can set the URL in the
+	// web UI; InstallDefaults then supply the pin and agent directory.
+	Install         *InstallConfig
+	InstallDefaults InstallConfig
 	// NotifyHTTP overrides the HTTP client for webhook calls (tests).
 	NotifyHTTP *http.Client
 }
 
 // Server serves the netcrawl API.
 type Server struct {
-	st       store.Store
-	now      func() time.Time
-	log      *slog.Logger
-	secure   bool
-	embed    bool
-	sessTTL  time.Duration
-	limiter  *loginLimiter
-	events   *eventlog.Writer
-	install  *InstallConfig
-	agents   *agentBinaries
-	notifier *notifier
+	st              store.Store
+	now             func() time.Time
+	log             *slog.Logger
+	secure          bool
+	embed           bool
+	sessTTL         time.Duration
+	limiter         *loginLimiter
+	events          *eventlog.Writer
+	install         *InstallConfig
+	installDefaults InstallConfig
+	agents          *agentBinaries
+	notifier        *notifier
 }
 
 // New returns a server backed by st.
@@ -80,10 +84,13 @@ func New(st store.Store, opts Options) *Server {
 	s.limiter = newLoginLimiter(s.now)
 	s.events = opts.EventLog
 	s.install = opts.Install
+	s.installDefaults = opts.InstallDefaults
 	s.notifier = &notifier{sender: notify.Sender{HTTP: opts.NotifyHTTP}}
+	agentDir := opts.InstallDefaults.AgentDir
 	if opts.Install != nil {
-		s.agents = &agentBinaries{dir: opts.Install.AgentDir}
+		agentDir = opts.Install.AgentDir
 	}
+	s.agents = &agentBinaries{dir: agentDir}
 	return s
 }
 

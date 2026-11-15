@@ -109,7 +109,7 @@ async function refresh() {
       case "hosts": return renderHosts();
       case "networks": return renderNetworks();
       case "jobs": return renderJobs();
-      case "crawlers": return renderCrawlers(crawlers);
+      case "crawlers": renderCrawlers(crawlers); return renderPublicURL();
       case "audit": return renderAudit();
       case "settings": return renderNotify(false);
     }
@@ -304,6 +304,7 @@ function renderCrawlers(crawlers) {
     const tr = document.createElement("tr");
     cell(tr, c.id);
     if (!c.enabled) cell(tr, "deaktiviert", "status-expired");
+    else if (c.reinstall_required) cell(tr, "Neuinstallation nötig", "status-pending");
     else if (crawlerOnline(c)) cell(tr, "online", "status-completed");
     else cell(tr, c.last_seen_at ? "offline" : "noch nie verbunden", "status-pending");
     cell(tr, c.allow.join(", "), "mono");
@@ -318,6 +319,12 @@ function renderCrawlers(crawlers) {
         showInstall(c.id, true);
       });
       td.appendChild(b);
+    }
+    if (installer && c.enabled) {
+      const e = el("button", "Freigabe ändern", "ghost small");
+      e.type = "button";
+      e.addEventListener("click", () => showEdit(c));
+      td.appendChild(e);
     }
     const t = el("button", c.enabled ? "Deaktivieren" : "Aktivieren", "ghost small");
     t.type = "button";
@@ -362,10 +369,17 @@ async function showInstall(id, reverseDNS) {
     });
     const review = document.createElement("details");
     review.append(el("summary", "Skript erst ansehen, dann ausführen"), el("pre", v.download_command));
+    const pin = v.tls_pin ? `-k --pinnedpubkey '${v.tls_pin}' ` : "";
+    const remove = document.createElement("details");
+    remove.append(
+      el("summary", "Alte Installation entfernen"),
+      el("p", "Auf demselben Rechner ersetzt der Befehl oben die alte Installation automatisch. Lief der Crawler bisher auf einem anderen Rechner, dort aufräumen mit:", "hint"),
+      el("pre", `curl -fsS ${pin}'${v.server_url}/install/uninstall' | sudo sh`),
+      el("p", "Ein alter Crawler, dessen Secret ersetzt wurde, beendet sich nach etwa drei Minuten auch von selbst.", "hint"));
     box.append(
       el("h3", `Crawler „${v.crawler_id}“ installieren`),
       el("p", "Auf dem Crawler-Rechner (Debian/Ubuntu/Raspberry Pi OS mit systemd, amd64 oder arm64) als Benutzer mit sudo ausführen:"),
-      pre, copy, review,
+      pre, copy, review, remove,
       el("p", `Gilt einmal, bis ${fmt(v.expires_at)}. Das Ausführen ersetzt das Secret des Crawlers.` +
         (v.tls_pin ? " Der Befehl prüft den Schlüssel des Servers (selbstsigniertes Zertifikat)." : ""), "hint"),
     );
@@ -398,6 +412,37 @@ async function renderNotify(full) {
   f.discord_url.placeholder = v.discord_configured ? "gespeichert – leer lassen, um sie zu behalten" : "https://discord.com/api/webhooks/…";
   f.min_severity.value = v.min_severity;
   f.enabled.checked = v.enabled;
+}
+
+// showEdit opens the release editor for a crawler.
+function showEdit(c) {
+  $("#install-box").hidden = true;
+  const box = $("#edit-box");
+  $("#edit-id").textContent = c.id;
+  const f = $("#edit-form");
+  f.dataset.id = c.id;
+  f.allow.value = c.allow.join(", ");
+  f.max_hosts.value = c.max_hosts;
+  $("#edit-msg").hidden = true;
+  box.hidden = false;
+  box.scrollIntoView({ block: "nearest" });
+}
+
+// renderPublicURL shows the server address card when crawlers cannot be
+// installed yet, suggesting the address this page was opened with.
+async function renderPublicURL() {
+  const v = await api("GET", "/api/v1/admin/settings/public-url");
+  const card = $("#public-url-card");
+  const f = $("#public-url-form");
+  if (v.source === "env") { card.hidden = true; return; }
+  card.hidden = false;
+  if (v.public_url) {
+    $("#public-url-text").textContent = `Crawler erreichen den Server unter ${v.public_url}. Nur ändern, wenn sich die Adresse des Servers ändert.`;
+    if (document.activeElement !== f.public_url) f.public_url.value = v.public_url;
+  } else {
+    $("#public-url-text").textContent = "Damit es einen Installationsbefehl gibt, muss der Server wissen, unter welcher Adresse die Crawler ihn erreichen. Vorschlag: die Adresse, unter der diese Seite gerade geöffnet ist.";
+    if (!f.public_url.value) f.public_url.value = location.origin;
+  }
 }
 
 async function renderAudit() {
@@ -514,6 +559,35 @@ document.addEventListener("DOMContentLoaded", async () => {
       await renderNotify(true);
     } catch (e) {
       message("#notify-msg", "Nicht möglich: " + e.message, true);
+    }
+  });
+
+  $("#public-url-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("PUT", "/api/v1/admin/settings/public-url", { public_url: ev.target.public_url.value.trim() });
+      installer = true;
+      message("#public-url-msg", "Gespeichert. Installationsbefehle verwenden jetzt diese Adresse.");
+      await refresh();
+    } catch (e) {
+      message("#public-url-msg", "Nicht gespeichert: " + e.message, true);
+    }
+  });
+  $("#edit-cancel").addEventListener("click", () => { $("#edit-box").hidden = true; });
+  $("#edit-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    const id = f.dataset.id;
+    if (!confirm(`Freigabe von „${id}“ ändern? Der Crawler muss danach neu installiert werden; bis dahin bleibt seine alte Freigabe aktiv.`)) return;
+    try {
+      await api("PUT", `/api/v1/admin/crawlers/${encodeURIComponent(id)}`, {
+        allow: list(f.allow.value), max_hosts: parseInt(f.max_hosts.value, 10),
+      });
+      $("#edit-box").hidden = true;
+      await refresh();
+      await showInstall(id, f.reverse_dns.checked);
+    } catch (e) {
+      message("#edit-msg", "Abgelehnt: " + e.message, true);
     }
   });
 

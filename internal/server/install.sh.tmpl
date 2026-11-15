@@ -62,9 +62,19 @@ say "Downloading netcrawl-agent (linux-$ARCH) from $SERVER_URL"
 fetch -o "$TMP/netcrawl-agent" "$SERVER_URL/install/agent/linux-$ARCH"
 echo "$SUM  $TMP/netcrawl-agent" | sha256sum -c - >/dev/null 2>&1 || die "checksum mismatch, aborting"
 
-if [ "$USE_SYSTEMD" = 1 ] && systemctl is-active --quiet netcrawl-agent 2>/dev/null; then
-  say "Stopping the running netcrawl-agent"
-  systemctl stop netcrawl-agent
+# An existing installation is replaced completely: service stopped, old
+# configuration, secret, lock and service overrides removed.
+if [ -f "$CONF_DIR/agent.json" ] || [ -f "$BIN" ]; then
+  OLD_ID=$(sed -n 's/.*"crawler_id": *"\([^"]*\)".*/\1/p' "$CONF_DIR/agent.json" 2>/dev/null | head -n 1)
+  say "Replacing the existing installation${OLD_ID:+ (crawler $OLD_ID)}"
+  if [ "$USE_SYSTEMD" = 1 ]; then
+    systemctl stop netcrawl-agent 2>/dev/null || true
+    systemctl reset-failed netcrawl-agent 2>/dev/null || true
+  fi
+  rm -rf "$CONF_DIR" "$STATE_DIR" /etc/systemd/system/netcrawl-agent.service.d
+  if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "$CRAWLER_ID" ]; then
+    echo "    Note: this machine was crawler $OLD_ID. Disable it in the web UI if it is no longer used."
+  fi
 fi
 install -m 0755 "$TMP/netcrawl-agent" "$BIN"
 
@@ -109,6 +119,8 @@ Group=netcrawl
 ExecStart=/usr/local/bin/netcrawl-agent --config /etc/netcrawl-agent/agent.json
 Restart=on-failure
 RestartSec=30
+# Exit 3: the server rejects this crawler (reinstalled elsewhere or disabled).
+RestartPreventExitStatus=3
 UMask=0077
 NoNewPrivileges=yes
 CapabilityBoundingSet=
@@ -135,7 +147,6 @@ RestrictNamespaces=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
-rm -f /etc/systemd/system/netcrawl-agent.service.d/container.conf
 systemctl daemon-reload
 systemctl enable --now netcrawl-agent >/dev/null 2>&1 || true
 sleep 3

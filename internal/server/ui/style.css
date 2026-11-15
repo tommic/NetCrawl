@@ -51,3 +51,6 @@ label.inline { display: flex; flex-direction: row; align-items: center; gap: 6px
 .install h3 { font-size: 15px; margin: 0 0 8px; }
 .install pre { white-space: pre-wrap; word-break: break-all; }
 .stack { display: grid; gap: 12px; max-width: 560px; }
+.notice { border-left: 4px solid var(--warn); background: var(--bg); padding: 10px 12px; border-radius: 6px; margin: 0 0 12px; font-size: 14px; }
+#edit-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+#edit-box h3 { font-size: 15px; margin: 0 0 8px; }

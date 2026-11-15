@@ -174,11 +174,11 @@ func (s *Store) CreateCrawler(ctx context.Context, c store.Crawler) error {
 	return err
 }
 
-const crawlerColumns = `id, secret, allow, max_hosts, enabled, created_at, last_seen_at`
+const crawlerColumns = `id, secret, allow, max_hosts, enabled, created_at, last_seen_at, reinstall_required`
 
 func scanCrawler(row pgx.Row) (store.Crawler, error) {
 	var c store.Crawler
-	err := row.Scan(&c.ID, &c.Secret, &c.Allow, &c.MaxHosts, &c.Enabled, &c.CreatedAt, &c.LastSeenAt)
+	err := row.Scan(&c.ID, &c.Secret, &c.Allow, &c.MaxHosts, &c.Enabled, &c.CreatedAt, &c.LastSeenAt, &c.ReinstallRequired)
 	return c, err
 }
 
@@ -209,6 +209,41 @@ func (s *Store) SetCrawlerEnabled(ctx context.Context, id string, enabled bool) 
 	if err == nil && tag.RowsAffected() == 0 {
 		return store.ErrNotFound
 	}
+	return err
+}
+
+func (s *Store) UpdateCrawlerRelease(ctx context.Context, id string, allow []string, maxHosts int, now time.Time) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE crawlers SET allow = $2, max_hosts = $3, reinstall_required = true WHERE id = $1`, id, allow, maxHosts)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `UPDATE jobs SET expires_at = $2
+		WHERE crawler_id = $1 AND status IN ('pending', 'delivered') AND expires_at > $2`, id, now); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) Setting(ctx context.Context, key string) (string, error) {
+	var v string
+	err := s.pool.QueryRow(ctx, `SELECT value FROM server_settings WHERE key = $1`, key).Scan(&v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+func (s *Store) SetSetting(ctx context.Context, key, value string, now time.Time) error {
+	_, err := s.pool.Exec(ctx, `INSERT INTO server_settings (key, value, updated_at) VALUES ($1, $2, $3)
+		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = $3`, key, value, now)
 	return err
 }
 
@@ -415,6 +450,6 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]store.AuditEntry, e
 // Reset drops all data. Only for tests.
 func (s *Store) Reset(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `TRUNCATE admin_sessions, admin_users, crawler_nonces, job_results, jobs, crawlers, audit_log,
-		events, host_ports, hosts, networks, enrollments, notification_settings RESTART IDENTITY CASCADE`)
+		events, host_ports, hosts, networks, enrollments, notification_settings, server_settings RESTART IDENTITY CASCADE`)
 	return err
 }

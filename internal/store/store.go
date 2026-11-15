@@ -39,6 +39,9 @@ type Crawler struct {
 	Enabled    bool
 	CreatedAt  time.Time
 	LastSeenAt *time.Time
+	// ReinstallRequired: the release was changed on the server and the
+	// crawler still runs with its old local limits.
+	ReinstallRequired bool
 }
 
 // Enrollment is a one-time code that installs a crawler. Only a SHA-256
@@ -238,14 +241,22 @@ type Store interface {
 	TouchCrawler(ctx context.Context, id string, now time.Time) error
 	// SetCrawlerEnabled enables or disables (revokes) a crawler.
 	SetCrawlerEnabled(ctx context.Context, id string, enabled bool) error
+	// UpdateCrawlerRelease atomically sets a new allowlist and host limit,
+	// marks the crawler as needing a reinstall and expires its open
+	// (pending or delivered) jobs.
+	UpdateCrawlerRelease(ctx context.Context, id string, allow []string, maxHosts int, now time.Time) error
+
+	// Setting returns a server setting ("" if unset); SetSetting stores it.
+	Setting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key, value string, now time.Time) error
 
 	// CreateEnrollment stores a one-time code and invalidates earlier
 	// unused codes of the crawler. ErrNotFound if the crawler is unknown.
 	CreateEnrollment(ctx context.Context, e Enrollment) error
 	// Enrollment returns an unused, unexpired code, else ErrNotFound.
 	Enrollment(ctx context.Context, tokenHash []byte, now time.Time) (Enrollment, error)
-	// RedeemEnrollment atomically marks an unused, unexpired code as used
-	// and replaces the crawler's secret. ErrNotFound if the code is unknown,
+	// RedeemEnrollment atomically marks an unused, unexpired code as used,
+	// replaces the crawler's secret and clears ReinstallRequired. ErrNotFound if the code is unknown,
 	// used or expired; ErrForbidden if the crawler is disabled.
 	RedeemEnrollment(ctx context.Context, tokenHash, newSecret []byte, now time.Time) (Crawler, Enrollment, error)
 

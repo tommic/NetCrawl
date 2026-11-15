@@ -52,6 +52,8 @@ type Agent struct {
 	Now func() time.Time
 	// Logf receives log lines.
 	Logf func(format string, args ...any)
+	// interval overrides the polling interval (tests only).
+	interval time.Duration
 }
 
 // New runs the preflight checks: the config is already validated by
@@ -163,8 +165,21 @@ type Outcome struct {
 // cancelled.
 func (a *Agent) Run(ctx context.Context) error {
 	interval := time.Duration(a.cfg.Polling.IntervalSeconds) * time.Second
+	if a.interval > 0 {
+		interval = a.interval
+	}
+	rejected := 0
 	for {
 		out, err := a.RunOnce(ctx)
+		if errors.Is(err, errUnauthorized) {
+			rejected++
+		} else {
+			rejected = 0
+		}
+		if rejected >= MaxRejectedPolls {
+			a.Logf("[ERROR] %v", err)
+			return ErrCredentialsRejected
+		}
 		switch {
 		case err != nil:
 			a.Logf("[ERROR] %v", err)
@@ -182,6 +197,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 }
+
+// MaxRejectedPolls is how many polls in a row the server may reject
+// before the agent stops.
+const MaxRejectedPolls = 3
+
+var errUnauthorized = errors.New("crawler rejected by the server")
+
+// ErrCredentialsRejected ends Run: the server rejected the crawler several
+// times in a row. Usually the crawler was reinstalled (its secret was
+// replaced), disabled or deleted, so this installation is obsolete.
+// Clock skew of more than 5 minutes has the same effect.
+var ErrCredentialsRejected = errors.New("the server rejects this crawler: it was reinstalled elsewhere (secret replaced) or disabled, or the clock is off by more than 5 minutes")
 
 // RunOnce polls for one job and, if one is received and passes the local
 // checks, scans and submits the result.
@@ -252,6 +279,8 @@ func (a *Agent) poll(ctx context.Context) (*protocol.Job, error) {
 	case http.StatusNoContent:
 		return nil, nil
 	case http.StatusOK:
+	case http.StatusUnauthorized:
+		return nil, fmt.Errorf("poll: %w (server answered %d)", errUnauthorized, resp.StatusCode)
 	default:
 		return nil, fmt.Errorf("poll: server answered %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
