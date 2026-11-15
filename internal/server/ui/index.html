@@ -124,19 +124,21 @@
       <div class="card">
         <h2>Crawler</h2>
         <table>
-          <thead><tr><th>ID</th><th>Freigabe (Allowlist)</th><th>Max. Hosts</th><th>Zuletzt gesehen</th></tr></thead>
+          <thead><tr><th>ID</th><th>Status</th><th>Freigabe (Allowlist)</th><th>Max. Hosts</th><th>Zuletzt gesehen</th><th></th></tr></thead>
           <tbody id="crawlers"></tbody>
         </table>
+        <div id="install-box" hidden></div>
       </div>
       <div class="card">
-        <h2>Crawler registrieren</h2>
+        <h2>Crawler anlegen</h2>
         <form id="crawler-form" class="row">
           <label>ID <input name="id" placeholder="lan-1" required></label>
           <label>Freigabe <input name="allow" placeholder="192.168.1.0/24" required></label>
           <label>Max. Hosts <input name="max_hosts" type="number" min="1" value="256" required></label>
-          <button type="submit">Registrieren</button>
+          <label class="inline"><input name="reverse_dns" type="checkbox" checked> Hostnamen (Reverse-DNS)</label>
+          <button type="submit">Anlegen</button>
         </form>
-        <p class="hint">Nur private Adressbereiche. Der Crawler braucht dieselbe Freigabe zusätzlich in seiner lokalen <code>agent.json</code>.</p>
+        <p class="hint">Nur private Adressbereiche. Danach erscheint ein Installationsbefehl für den Crawler-Rechner (Debian/Ubuntu/Raspberry Pi OS mit systemd). Er übernimmt die Freigabe fest in die lokale <code>agent.json</code>.</p>
         <div id="crawler-msg" hidden></div>
       </div>
     </div>

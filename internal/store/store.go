@@ -41,6 +41,17 @@ type Crawler struct {
 	LastSeenAt *time.Time
 }
 
+// Enrollment is a one-time code that installs a crawler. Only a SHA-256
+// of the code is stored. Redeeming it sets a new crawler secret.
+type Enrollment struct {
+	TokenHash  []byte
+	CrawlerID  string
+	ReverseDNS bool
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	UsedAt     *time.Time
+}
+
 // Job states.
 const (
 	JobPending   = "pending"
@@ -210,6 +221,18 @@ type Store interface {
 	Crawler(ctx context.Context, id string) (Crawler, error)
 	ListCrawlers(ctx context.Context) ([]Crawler, error)
 	TouchCrawler(ctx context.Context, id string, now time.Time) error
+	// SetCrawlerEnabled enables or disables (revokes) a crawler.
+	SetCrawlerEnabled(ctx context.Context, id string, enabled bool) error
+
+	// CreateEnrollment stores a one-time code and invalidates earlier
+	// unused codes of the crawler. ErrNotFound if the crawler is unknown.
+	CreateEnrollment(ctx context.Context, e Enrollment) error
+	// Enrollment returns an unused, unexpired code, else ErrNotFound.
+	Enrollment(ctx context.Context, tokenHash []byte, now time.Time) (Enrollment, error)
+	// RedeemEnrollment atomically marks an unused, unexpired code as used
+	// and replaces the crawler's secret. ErrNotFound if the code is unknown,
+	// used or expired; ErrForbidden if the crawler is disabled.
+	RedeemEnrollment(ctx context.Context, tokenHash, newSecret []byte, now time.Time) (Crawler, Enrollment, error)
 
 	// UseNonce records a nonce; ErrReplay if the crawler used it before.
 	UseNonce(ctx context.Context, crawlerID, nonce string, now time.Time) error

@@ -6,6 +6,7 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 let networks = [];
 let currentTab = "events";
+let installer = false;
 
 async function api(method, path, body) {
   const opts = { method, headers: {}, credentials: "same-origin" };
@@ -289,18 +290,88 @@ async function showJob(id) {
   box.appendChild(details);
 }
 
+// A crawler polls every 60 s; three missed polls count as offline.
+function crawlerOnline(c) {
+  return c.last_seen_at && Date.now() - new Date(c.last_seen_at).getTime() < 3 * 60 * 1000;
+}
+
 function renderCrawlers(crawlers) {
   const tbody = $("#crawlers");
   tbody.replaceChildren();
   for (const c of crawlers) {
     const tr = document.createElement("tr");
     cell(tr, c.id);
+    if (!c.enabled) cell(tr, "deaktiviert", "status-expired");
+    else if (crawlerOnline(c)) cell(tr, "online", "status-completed");
+    else cell(tr, c.last_seen_at ? "offline" : "noch nie verbunden", "status-pending");
     cell(tr, c.allow.join(", "), "mono");
     cell(tr, String(c.max_hosts));
     cell(tr, fmt(c.last_seen_at));
+    const td = cell(tr, "");
+    if (installer && c.enabled) {
+      const b = el("button", "Installationsbefehl", "ghost small");
+      b.type = "button";
+      b.addEventListener("click", () => {
+        if (c.last_seen_at && !confirm(`Ein neuer Installationsbefehl ersetzt beim Ausführen das Secret von „${c.id}“. Ein bereits installierter Crawler mit dem alten Secret funktioniert danach nicht mehr. Fortfahren?`)) return;
+        showInstall(c.id, true);
+      });
+      td.appendChild(b);
+    }
+    const t = el("button", c.enabled ? "Deaktivieren" : "Aktivieren", "ghost small");
+    t.type = "button";
+    t.addEventListener("click", async () => {
+      if (c.enabled && !confirm(`Crawler „${c.id}“ deaktivieren? Er bekommt keine Jobs mehr, seine Ergebnisse werden abgelehnt.`)) return;
+      try {
+        await api("PUT", `/api/v1/admin/crawlers/${encodeURIComponent(c.id)}`, { enabled: !c.enabled });
+        await refresh();
+      } catch (e) {
+        alert("Nicht möglich: " + e.message);
+      }
+    });
+    td.appendChild(t);
     tbody.appendChild(tr);
   }
-  if (!crawlers.length) emptyRow(tbody, 4, "Noch kein Crawler registriert.");
+  if (!crawlers.length) emptyRow(tbody, 6, "Noch kein Crawler angelegt.");
+}
+
+// showInstall creates a one-time install command and shows it.
+async function showInstall(id, reverseDNS) {
+  const box = $("#install-box");
+  box.replaceChildren();
+  box.hidden = false;
+  try {
+    const v = await api("POST", `/api/v1/admin/crawlers/${encodeURIComponent(id)}/enroll`, { reverse_dns: reverseDNS });
+    box.className = "install";
+    const pre = el("pre", v.command);
+    const copy = el("button", "Kopieren", "small");
+    copy.type = "button";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(v.command);
+        copy.textContent = "Kopiert";
+      } catch {
+        // No clipboard API on plain http: select the text instead.
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        copy.textContent = "Markiert – mit Strg+C kopieren";
+      }
+    });
+    const review = document.createElement("details");
+    review.append(el("summary", "Skript erst ansehen, dann ausführen"), el("pre", v.download_command));
+    box.append(
+      el("h3", `Crawler „${v.crawler_id}“ installieren`),
+      el("p", "Auf dem Crawler-Rechner (Debian/Ubuntu/Raspberry Pi OS mit systemd, amd64 oder arm64) als Benutzer mit sudo ausführen:"),
+      pre, copy, review,
+      el("p", `Gilt einmal, bis ${fmt(v.expires_at)}. Das Ausführen ersetzt das Secret des Crawlers.` +
+        (v.tls_pin ? " Der Befehl prüft den Schlüssel des Servers (selbstsigniertes Zertifikat)." : ""), "hint"),
+    );
+    box.scrollIntoView({ block: "nearest" });
+  } catch (e) {
+    box.className = "error";
+    box.textContent = "Installationsbefehl nicht möglich: " + e.message;
+  }
 }
 
 async function renderAudit() {
@@ -333,6 +404,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       const me = await api("POST", "/api/v1/admin/login", { username: f.get("username"), password: f.get("password") });
       ev.target.reset();
+      installer = !!me.installer;
       await showApp(me.username);
     } catch (e) {
       $("#login-error").textContent = e.status === 429 ? "Zu viele Fehlversuche, bitte später erneut versuchen." : "Benutzer oder Passwort falsch.";
@@ -395,8 +467,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       const c = await api("POST", "/api/v1/admin/crawlers", {
         id: f.get("id"), allow: list(f.get("allow")), max_hosts: parseInt(f.get("max_hosts"), 10),
       });
-      box.className = "ok";
-      box.append(el("p", `Crawler „${c.id}“ registriert. Secret (wird nur jetzt angezeigt, in die Datei agent.secret mit Rechten 600 legen):`), el("pre", c.secret));
+      if (installer) {
+        box.hidden = true;
+        await showInstall(c.id, f.get("reverse_dns") === "on");
+      } else {
+        box.className = "ok";
+        box.append(
+          el("p", `Crawler „${c.id}“ angelegt. Der Server hat keine --public-url, deshalb gibt es keinen Installationsbefehl. Secret für die manuelle Einrichtung (wird nur jetzt angezeigt, in agent.secret mit Rechten 600):`),
+          el("pre", c.secret));
+      }
       ev.target.reset();
       await refresh();
     } catch (e) {
@@ -407,6 +486,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   try {
     const me = await api("GET", "/api/v1/admin/me");
+    installer = !!me.installer;
     await showApp(me.username);
   } catch {
     showLogin();

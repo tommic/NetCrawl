@@ -4,7 +4,7 @@ VERSION ?= dev
 TESTFLAGS=-race $(if $(NETCRAWL_TEST_DATABASE_URL),-p 1,)
 LDFLAGS=-ldflags "-X netcrawler/internal/version.Version=$(VERSION)"
 
-.PHONY: all build test vet fmt check e2e clean
+.PHONY: all build agents test vet fmt check e2e clean
 
 all: build
 
@@ -36,5 +36,12 @@ e2e:
 	NETCRAWL_E2E_REPORT=$(CURDIR)/e2e-report.md go test -count=1 -v $(LDFLAGS) ./internal/e2e
 	@echo "Evidence report: e2e-report.md"
 
+# Agent binaries the server hands out to the installer (--agent-dir dist/agent).
+agents:
+	mkdir -p dist/agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X netcrawler/internal/version.Version=$(VERSION)" -o dist/agent/netcrawl-agent-linux-amd64 ./cmd/netcrawl-agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X netcrawler/internal/version.Version=$(VERSION)" -o dist/agent/netcrawl-agent-linux-arm64 ./cmd/netcrawl-agent
+
 clean:
 	rm -f $(BINS)
+	rm -rf dist

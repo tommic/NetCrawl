@@ -17,3 +17,4 @@
 /deploy/.env
 /deploy/testenv/data/
 /deploy/testenv/.env
+/dist/

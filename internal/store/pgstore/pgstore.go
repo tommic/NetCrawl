@@ -204,6 +204,14 @@ func (s *Store) ListCrawlers(ctx context.Context) ([]store.Crawler, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) SetCrawlerEnabled(ctx context.Context, id string, enabled bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE crawlers SET enabled = $2 WHERE id = $1`, id, enabled)
+	if err == nil && tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return err
+}
+
 func (s *Store) TouchCrawler(ctx context.Context, id string, now time.Time) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE crawlers SET last_seen_at = $2 WHERE id = $1`, id, now)
 	if err == nil && tag.RowsAffected() == 0 {

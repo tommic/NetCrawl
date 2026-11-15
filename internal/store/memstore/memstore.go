@@ -36,6 +36,7 @@ type Store struct {
 	nextNet  int64
 	hosts    map[int64]map[string]store.Host
 	events   []store.Event
+	enrolls  map[string]store.Enrollment
 }
 
 // New returns an empty store.
@@ -49,6 +50,7 @@ func New() *Store {
 		results:  map[string]store.Result{},
 		networks: map[int64]store.Network{},
 		hosts:    map[int64]map[string]store.Host{},
+		enrolls:  map[string]store.Enrollment{},
 	}
 }
 
@@ -139,6 +141,18 @@ func (s *Store) ListCrawlers(_ context.Context) ([]store.Crawler, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+func (s *Store) SetCrawlerEnabled(_ context.Context, id string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.crawlers[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	c.Enabled = enabled
+	s.crawlers[id] = c
+	return nil
 }
 
 func (s *Store) TouchCrawler(_ context.Context, id string, now time.Time) error {
@@ -538,4 +552,52 @@ func (s *Store) ListEvents(_ context.Context, f store.EventFilter) ([]store.Even
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
 	return out, nil
+}
+
+func (s *Store) CreateEnrollment(_ context.Context, e store.Enrollment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.crawlers[e.CrawlerID]; !ok {
+		return store.ErrNotFound
+	}
+	for k, old := range s.enrolls {
+		if old.CrawlerID == e.CrawlerID && old.UsedAt == nil {
+			delete(s.enrolls, k)
+		}
+	}
+	e.TokenHash = slices.Clone(e.TokenHash)
+	s.enrolls[string(e.TokenHash)] = e
+	return nil
+}
+
+func (s *Store) Enrollment(_ context.Context, tokenHash []byte, now time.Time) (store.Enrollment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.enrolls[string(tokenHash)]
+	if !ok || e.UsedAt != nil || !now.Before(e.ExpiresAt) {
+		return store.Enrollment{}, store.ErrNotFound
+	}
+	return e, nil
+}
+
+func (s *Store) RedeemEnrollment(_ context.Context, tokenHash, newSecret []byte, now time.Time) (store.Crawler, store.Enrollment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.enrolls[string(tokenHash)]
+	if !ok || e.UsedAt != nil || !now.Before(e.ExpiresAt) {
+		return store.Crawler{}, store.Enrollment{}, store.ErrNotFound
+	}
+	c, ok := s.crawlers[e.CrawlerID]
+	if !ok {
+		return store.Crawler{}, store.Enrollment{}, store.ErrNotFound
+	}
+	if !c.Enabled {
+		return store.Crawler{}, store.Enrollment{}, store.ErrForbidden
+	}
+	t := now
+	e.UsedAt = &t
+	s.enrolls[string(tokenHash)] = e
+	c.Secret = slices.Clone(newSecret)
+	s.crawlers[c.ID] = c
+	return c, e, nil
 }

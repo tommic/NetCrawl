@@ -16,6 +16,7 @@ import (
 
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/scope"
+	"netcrawler/internal/tlspin"
 )
 
 // MinPollInterval is the lowest allowed polling interval.
@@ -38,6 +39,10 @@ type Config struct {
 	LockFile string `json:"lock_file"`
 	// CAFile optionally adds a CA certificate for an https server_url.
 	CAFile string `json:"ca_file"`
+	// TLSPin trusts exactly this server key (sha256//<base64>, as curl's
+	// --pinnedpubkey) instead of a CA, for servers with a self-signed
+	// certificate. Set by "netcrawl-agent enroll".
+	TLSPin string `json:"tls_pin,omitempty"`
 	// ReverseDNS allows PTR lookups for found hosts when a job asks for
 	// them. Lookups contact the configured DNS resolver.
 	ReverseDNS bool `json:"reverse_dns"`
@@ -107,6 +112,12 @@ func (c *Config) validate() error {
 	}
 	if err := scope.CheckRelease(c.Limits.Allow, c.Limits.MaxHosts, c.Limits.AllowPublicRanges); err != nil {
 		add("limits: %v", err)
+	}
+	if c.TLSPin != "" && !tlspin.Valid(c.TLSPin) {
+		add("tls_pin %q is invalid (expected sha256//<base64>)", c.TLSPin)
+	}
+	if c.TLSPin != "" && c.CAFile != "" {
+		add("set either tls_pin or ca_file, not both")
 	}
 	if strings.TrimSpace(c.LockFile) == "" {
 		add("lock_file is required")

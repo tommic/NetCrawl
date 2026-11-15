@@ -74,6 +74,23 @@ func CreateCrawler(ctx context.Context, st store.Store, actor string, req Crawle
 	return c, protocol.EncodeKey(secret), nil
 }
 
+// SetCrawlerEnabled enables or disables a crawler. A disabled crawler
+// gets no jobs, its results are rejected and it cannot be installed.
+func SetCrawlerEnabled(ctx context.Context, st store.Store, actor, id string, enabled bool) error {
+	if err := st.SetCrawlerEnabled(ctx, id, enabled); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return invalid("unknown crawler %q", id)
+		}
+		return err
+	}
+	action := "crawler.disable"
+	if enabled {
+		action = "crawler.enable"
+	}
+	_ = st.Audit(ctx, actor, action, map[string]any{"id": id})
+	return nil
+}
+
 // JobRequest describes a new job. Zero values get defaults: MaxHosts =
 // the crawler's limit, TimeoutMs = 500, TTL = 5 minutes.
 type JobRequest struct {

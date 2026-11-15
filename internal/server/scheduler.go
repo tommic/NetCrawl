@@ -73,6 +73,9 @@ func (s *Server) Tick(ctx context.Context) error {
 		if !n.Enabled {
 			continue
 		}
+		if c, err := s.st.Crawler(ctx, n.CrawlerID); err != nil || !c.Enabled {
+			continue // a disabled crawler would never pick the jobs up
+		}
 		if err := s.scheduleNetwork(ctx, n, now); err != nil {
 			s.log.Warn("scheduler: network skipped", "network", n.Name, "err", err)
 			_ = s.st.Audit(ctx, scheduledActor, "scheduler.error", map[string]any{"network_id": n.ID, "error": err.Error()})

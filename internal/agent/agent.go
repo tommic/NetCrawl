@@ -24,6 +24,7 @@ import (
 	"netcrawler/internal/result"
 	"netcrawler/internal/scanner/tcp"
 	"netcrawler/internal/scope"
+	"netcrawler/internal/tlspin"
 	"netcrawler/internal/version"
 )
 
@@ -114,6 +115,13 @@ func acquireLock(path string) (*os.File, error) {
 func newHTTPClient(cfg *Config) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	if cfg.TLSPin != "" {
+		tc, err := tlspin.ClientConfig(cfg.TLSPin)
+		if err != nil {
+			return nil, err
+		}
+		transport.TLSClientConfig = tc
+	}
 	if cfg.CAFile != "" {
 		pem, err := os.ReadFile(cfg.resolve(cfg.CAFile))
 		if err != nil {

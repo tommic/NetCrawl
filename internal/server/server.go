@@ -43,6 +43,8 @@ type Options struct {
 	Embeddable bool
 	// EventLog receives inventory events as JSON lines (optional).
 	EventLog *eventlog.Writer
+	// Install enables the crawler installer (optional, see InstallConfig).
+	Install *InstallConfig
 }
 
 // Server serves the netcrawl API.
@@ -55,6 +57,8 @@ type Server struct {
 	sessTTL time.Duration
 	limiter *loginLimiter
 	events  *eventlog.Writer
+	install *InstallConfig
+	agents  *agentBinaries
 }
 
 // New returns a server backed by st.
@@ -71,6 +75,10 @@ func New(st store.Store, opts Options) *Server {
 	}
 	s.limiter = newLoginLimiter(s.now)
 	s.events = opts.EventLog
+	s.install = opts.Install
+	if opts.Install != nil {
+		s.agents = &agentBinaries{dir: opts.Install.AgentDir}
+	}
 	return s
 }
 
@@ -95,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/admin/audit", s.admin(s.handleAudit))
 
 	s.registerInventoryRoutes(mux)
+	s.registerInstallRoutes(mux)
 	s.registerUI(mux)
 	return s.securityHeaders(mux)
 }
@@ -258,6 +267,10 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	ts, err := protocol.ParseTimestamp(r.Header.Get(protocol.HeaderResultTimestamp), now)
 	if err != nil {
 		reject(http.StatusUnauthorized, err.Error())
+		return
+	}
+	if c, err := s.st.Crawler(ctx, crawlerID); err != nil || !c.Enabled {
+		reject(http.StatusUnauthorized, "unknown or disabled crawler")
 		return
 	}
 	signing := protocol.SigningString(r.Method, r.URL.Path, crawlerID, jobID, ts, nonce, body)

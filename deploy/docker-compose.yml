@@ -1,11 +1,12 @@
-# netcrawl-server + PostgreSQL for the unprivileged Proxmox LXC.
+# netcrawl-server + PostgreSQL, e.g. in a Proxmox LXC with Docker.
 #
-#   cd deploy && cp .env.example .env   # set NETCRAWL_DB_PASSWORD
+#   cd deploy && cp .env.example .env   # set NETCRAWL_DB_PASSWORD and NETCRAWL_PUBLIC_URL
 #   docker compose up -d --build
 #
-# The API is published on 127.0.0.1:8080 only. Put an HTTPS reverse proxy
-# in front of it (or use --tls-cert/--tls-key) before agents on other
-# machines connect: agents refuse plain http to non-loopback servers.
+# The server speaks HTTPS on port 8443 with a self-signed certificate that
+# is created on first start and kept in the server-data volume. Crawlers
+# trust exactly its key (pinning), so no CA is needed; browsers show a
+# warning once. With a domain and your own certificate, see docs/SERVER.md.
 name: netcrawl
 
 services:
@@ -33,10 +34,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    command: ["serve", "--listen", "0.0.0.0:8443", "--event-log-dir", "/data/events"]
     environment:
       NETCRAWL_DATABASE_URL: postgres://netcrawl:${NETCRAWL_DB_PASSWORD}@db:5432/netcrawl?sslmode=disable
+      # How crawlers reach the server; enables the installer (one-liner).
+      NETCRAWL_PUBLIC_URL: ${NETCRAWL_PUBLIC_URL:-}
+      NETCRAWL_TLS_SELF_SIGNED_DIR: /data/tls
+    volumes:
+      - server-data:/data
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${NETCRAWL_BIND:-0.0.0.0}:${NETCRAWL_HTTPS_PORT:-8443}:8443"
 
 volumes:
   db-data:
+  server-data:
