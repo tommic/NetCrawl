@@ -202,7 +202,7 @@ Beispiel:
         "22": {
           "banner": "SSH-2.0-OpenSSH_9.6",
           "sshKeyType": "ecdsa-sha2-nistp256",
-          "sshKeyFingerprint": "SHA256:jgNEp8UZwyiggRAk4jnlNKcBjRC8B4iEbvF2uGO6zrM"
+          "sshKeyFingerprint": "SHA256:<Fingerprint des Host-Keys>"
         },
         "443": {
           "tlsSubject": "router.local",
