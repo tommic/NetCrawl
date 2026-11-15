@@ -415,6 +415,6 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]store.AuditEntry, e
 // Reset drops all data. Only for tests.
 func (s *Store) Reset(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `TRUNCATE admin_sessions, admin_users, crawler_nonces, job_results, jobs, crawlers, audit_log,
-		events, host_ports, hosts, networks RESTART IDENTITY CASCADE`)
+		events, host_ports, hosts, networks, enrollments, notification_settings RESTART IDENTITY CASCADE`)
 	return err
 }

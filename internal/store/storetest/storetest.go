@@ -30,6 +30,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"NetworkJobs":    testNetworkJobs,
 		"Inventory":      testInventory,
 		"Enrollments":    testEnrollments,
+		"Notifications":  testNotifications,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, newStore(t)) })
@@ -557,4 +558,58 @@ func testEnrollments(t *testing.T, s store.Store) {
 	mustNoErr(t, s.CreateEnrollment(ctx, store.Enrollment{TokenHash: hash(4), CrawlerID: "off", CreatedAt: t0, ExpiresAt: t0.Add(time.Hour)}))
 	_, _, err = s.RedeemEnrollment(ctx, hash(4), newSecret, t0.Add(time.Minute))
 	wantErr(t, err, store.ErrForbidden)
+}
+
+func testNotifications(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	got, err := s.NotificationSettings(ctx)
+	mustNoErr(t, err)
+	if got.Enabled || got.DiscordURL != "" {
+		t.Fatalf("default settings = %+v", got)
+	}
+	mustNoErr(t, s.RecordNotification(ctx, nil, "ignored without settings"))
+
+	set := store.NotificationSettings{DiscordURL: "https://discord.com/api/webhooks/1/x", MinSeverity: "warning", Enabled: true, Since: t0, UpdatedAt: t0}
+	mustNoErr(t, s.SaveNotificationSettings(ctx, set))
+	sent := t0.Add(time.Hour)
+	mustNoErr(t, s.RecordNotification(ctx, &sent, ""))
+	mustNoErr(t, s.RecordNotification(ctx, nil, "429 rate limited"))
+	got, err = s.NotificationSettings(ctx)
+	mustNoErr(t, err)
+	if got.DiscordURL != set.DiscordURL || got.MinSeverity != "warning" || !got.Enabled || !got.Since.Equal(t0) ||
+		got.LastSentAt == nil || !got.LastSentAt.Equal(sent) || got.LastError != "429 rate limited" {
+		t.Fatalf("settings = %+v", got)
+	}
+	// Saving keeps the delivery status.
+	set.MinSeverity = "critical"
+	mustNoErr(t, s.SaveNotificationSettings(ctx, set))
+	if got, _ = s.NotificationSettings(ctx); got.LastError != "429 rate limited" || got.MinSeverity != "critical" {
+		t.Fatalf("after save = %+v", got)
+	}
+
+	addCrawler(t, s, "lab-1")
+	n := addNetwork(t, s, "lab-1", "Heimnetz")
+	mustNoErr(t, s.UpdateInventory(ctx, n.ID, func(*store.Network, map[string]*store.Host) ([]string, []store.Event, error) {
+		return nil, []store.Event{
+			{At: t0.Add(-time.Minute), IP: "127.0.0.1", Type: "port.opened", Severity: store.SeverityWarning, Message: "before since"},
+			{At: t0, IP: "127.0.0.1", Type: "host.new", Severity: store.SeverityInfo, Message: "baseline", Baseline: true},
+			{At: t0.Add(2 * time.Second), IP: "127.0.0.2", Type: "host.offline", Severity: store.SeverityCritical, Message: "c"},
+			{At: t0.Add(time.Second), IP: "127.0.0.1", Type: "port.opened", Severity: store.SeverityWarning, Message: "w"},
+			{At: t0.Add(3 * time.Second), IP: "127.0.0.3", Type: "host.new", Severity: store.SeverityInfo, Message: "i"},
+		}, nil
+	}))
+	pending, err := s.PendingEvents(ctx, t0, []string{"warning", "critical"}, 10)
+	mustNoErr(t, err)
+	if len(pending) != 2 || pending[0].Message != "w" || pending[1].Message != "c" || pending[0].NetworkID != n.ID {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if p, _ := s.PendingEvents(ctx, t0, []string{"warning", "critical"}, 1); len(p) != 1 || p[0].Message != "w" {
+		t.Fatalf("limit: %+v", p)
+	}
+	mustNoErr(t, s.MarkEventsNotified(ctx, []int64{pending[0].ID}, t0.Add(time.Hour)))
+	pending, err = s.PendingEvents(ctx, t0, []string{"info", "warning", "critical"}, 10)
+	mustNoErr(t, err)
+	if len(pending) != 2 || pending[0].Message != "c" || pending[1].Message != "i" {
+		t.Fatalf("pending after mark = %+v", pending)
+	}
 }
