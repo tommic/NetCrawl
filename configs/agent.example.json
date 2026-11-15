@@ -10,5 +10,6 @@
     "allow": ["127.0.0.1/32"],
     "max_hosts": 1
   },
-  "lock_file": "agent.lock"
+  "lock_file": "agent.lock",
+  "reverse_dns": false
 }
