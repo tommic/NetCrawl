@@ -16,6 +16,7 @@
     <button data-tab="networks" class="tab">Netze</button>
     <button data-tab="jobs" class="tab">Jobs</button>
     <button data-tab="crawlers" class="tab">Crawler</button>
+    <button data-tab="settings" class="tab">Benachrichtigungen</button>
     <button data-tab="audit" class="tab">Audit</button>
   </nav>
   <span id="who" hidden></span>
@@ -140,6 +141,37 @@
         </form>
         <p class="hint">Nur private Adressbereiche. Danach erscheint ein Installationsbefehl für den Crawler-Rechner (Debian/Ubuntu/Raspberry Pi OS mit systemd). Er übernimmt die Freigabe fest in die lokale <code>agent.json</code>.</p>
         <div id="crawler-msg" hidden></div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="settings" hidden>
+      <div class="card">
+        <h2>Benachrichtigungen per Discord</h2>
+        <p id="notify-status" class="hint"></p>
+        <form id="notify-form" class="stack">
+          <label>Webhook-URL
+            <input name="discord_url" type="password" autocomplete="off" spellcheck="false" placeholder="https://discord.com/api/webhooks/…">
+          </label>
+          <label>Melden ab
+            <select name="min_severity">
+              <option value="info">Info – alle Änderungen, auch neue Hosts</option>
+              <option value="warning">Warnung – z. B. neu offene Ports, Hosts 7 Tage weg</option>
+              <option value="critical">Kritisch – nur wichtige Geräte, die verschwunden sind</option>
+            </select>
+          </label>
+          <label class="inline"><input name="enabled" type="checkbox"> Benachrichtigungen aktiv</label>
+          <div class="row">
+            <button type="submit">Speichern</button>
+            <button type="button" id="notify-test" class="ghost">Testnachricht senden</button>
+            <button type="button" id="notify-clear" class="ghost" hidden>Webhook entfernen</button>
+          </div>
+        </form>
+        <div id="notify-msg" hidden></div>
+        <details class="hint">
+          <summary>Webhook in Discord anlegen</summary>
+          <p>Discord-Server → Servereinstellungen → Integrationen → Webhooks → „Neuer Webhook“, Kanal wählen, „Webhook-URL kopieren“ und hier einfügen.</p>
+          <p>Die URL ist ein Zugangsschlüssel: Wer sie kennt, kann in den Kanal schreiben. Sie wird nur in der Datenbank gespeichert und nie wieder angezeigt. Gesendet werden nur Änderungen ab dem Speichern; der Initialbestand nie. Mehrere Änderungen kommen gebündelt in einer Nachricht.</p>
+        </details>
       </div>
     </div>
 

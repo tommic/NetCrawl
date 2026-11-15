@@ -37,6 +37,8 @@ type Store struct {
 	hosts    map[int64]map[string]store.Host
 	events   []store.Event
 	enrolls  map[string]store.Enrollment
+	notify   store.NotificationSettings
+	notified map[int64]time.Time
 }
 
 // New returns an empty store.
@@ -51,6 +53,7 @@ func New() *Store {
 		networks: map[int64]store.Network{},
 		hosts:    map[int64]map[string]store.Host{},
 		enrolls:  map[string]store.Enrollment{},
+		notified: map[int64]time.Time{},
 	}
 }
 
@@ -600,4 +603,63 @@ func (s *Store) RedeemEnrollment(_ context.Context, tokenHash, newSecret []byte,
 	c.Secret = slices.Clone(newSecret)
 	s.crawlers[c.ID] = c
 	return c, e, nil
+}
+
+func (s *Store) NotificationSettings(context.Context) (store.NotificationSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.notify, nil
+}
+
+func (s *Store) SaveNotificationSettings(_ context.Context, n store.NotificationSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n.LastSentAt, n.LastError = s.notify.LastSentAt, s.notify.LastError
+	s.notify = n
+	return nil
+}
+
+func (s *Store) RecordNotification(_ context.Context, sentAt *time.Time, lastError string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.notify.UpdatedAt.IsZero() {
+		return nil
+	}
+	if sentAt != nil {
+		t := *sentAt
+		s.notify.LastSentAt = &t
+	}
+	s.notify.LastError = lastError
+	return nil
+}
+
+func (s *Store) PendingEvents(_ context.Context, since time.Time, severities []string, limit int) ([]store.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit <= 0 {
+		limit = 100
+	}
+	var out []store.Event
+	for _, e := range s.events {
+		if _, done := s.notified[e.ID]; done || e.Baseline || e.At.Before(since) || !slices.Contains(severities, e.Severity) {
+			continue
+		}
+		out = append(out, e)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *Store) MarkEventsNotified(_ context.Context, ids []int64, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range ids {
+		if _, ok := s.notified[id]; !ok {
+			s.notified[id] = at
+		}
+	}
+	return nil
 }

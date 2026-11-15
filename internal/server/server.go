@@ -15,6 +15,7 @@ import (
 
 	"netcrawler/internal/eventlog"
 	"netcrawler/internal/inventory"
+	"netcrawler/internal/notify"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store"
 )
@@ -45,20 +46,23 @@ type Options struct {
 	EventLog *eventlog.Writer
 	// Install enables the crawler installer (optional, see InstallConfig).
 	Install *InstallConfig
+	// NotifyHTTP overrides the HTTP client for webhook calls (tests).
+	NotifyHTTP *http.Client
 }
 
 // Server serves the netcrawl API.
 type Server struct {
-	st      store.Store
-	now     func() time.Time
-	log     *slog.Logger
-	secure  bool
-	embed   bool
-	sessTTL time.Duration
-	limiter *loginLimiter
-	events  *eventlog.Writer
-	install *InstallConfig
-	agents  *agentBinaries
+	st       store.Store
+	now      func() time.Time
+	log      *slog.Logger
+	secure   bool
+	embed    bool
+	sessTTL  time.Duration
+	limiter  *loginLimiter
+	events   *eventlog.Writer
+	install  *InstallConfig
+	agents   *agentBinaries
+	notifier *notifier
 }
 
 // New returns a server backed by st.
@@ -76,6 +80,7 @@ func New(st store.Store, opts Options) *Server {
 	s.limiter = newLoginLimiter(s.now)
 	s.events = opts.EventLog
 	s.install = opts.Install
+	s.notifier = &notifier{sender: notify.Sender{HTTP: opts.NotifyHTTP}}
 	if opts.Install != nil {
 		s.agents = &agentBinaries{dir: opts.Install.AgentDir}
 	}
@@ -104,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerInventoryRoutes(mux)
 	s.registerInstallRoutes(mux)
+	s.registerNotifyRoutes(mux)
 	s.registerUI(mux)
 	return s.securityHeaders(mux)
 }

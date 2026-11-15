@@ -53,6 +53,9 @@ func (s *Server) RunScheduler(ctx context.Context, interval time.Duration) {
 		if err := s.Tick(ctx); err != nil && ctx.Err() == nil {
 			s.log.Error("scheduler", "err", err)
 		}
+		if err := s.Notify(ctx); err != nil && ctx.Err() == nil {
+			s.log.Error("notifications", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return

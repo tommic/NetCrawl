@@ -118,6 +118,8 @@ Netze, Inventar und Ereignisse (M2): Ein Scheduler im Server erzeugt pro Netz re
 
 Installation (M3): Der Admin legt einen Crawler in der Weboberfläche an und erhält einen Einzeiler mit Einmal-Code. Das Skript lädt den Crawler vom eigenen Server (`--agent-dir`), `netcrawl-agent enroll` löst den Code ein, erhält ein neues Secret und schreibt die Freigabe fest in `agent.json`; ein systemd-Dienst startet ihn. Bei einem selbstsignierten Server-Zertifikat prüfen `curl` und Crawler genau den Schlüssel des Servers (`internal/tlspin`).
 
+Benachrichtigungen (M4): Die Ereignis-Tabelle dient als Ausgangskorb (`notified_at`). Der Scheduler sendet ausstehende Ereignisse ab der eingestellten Stufe gebündelt an einen Discord-Webhook (`internal/notify`) und markiert sie erst nach erfolgreichem Versand; Fehler führen zu einem späteren neuen Versuch.
+
 ## Abbruch (Strg+C)
 
 - **Erstes** Strg+C bzw. `SIGTERM`: Das gerade laufende `/24` wird noch fertig gescannt und geschrieben, danach endet der Lauf. Weitere Netze werden nicht mehr begonnen.
@@ -320,6 +322,7 @@ NetCrawl/
 │   ├── envconfig/
 │   ├── inventory/   # Baseline, neue/verschwundene Hosts, Port-Änderungen
 │   ├── iprange/
+│   ├── notify/      # Discord-Webhook: Format, Versand, Maskierung
 │   ├── ports/       # Presets, Einzelports, Portbereiche
 │   ├── protocol/    # Job-/Ergebnisformat, HMAC-Signatur
 │   ├── result/

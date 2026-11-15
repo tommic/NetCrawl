@@ -15,7 +15,7 @@ Scheduler ── alle 30 Min. ──► Host-Erkennung  ──► Crawler ──
 Inventar (IP, Hostname, offene Ports, zuerst/zuletzt gesehen)
         │
         ▼
-Ereignisse (Weboberfläche, CLI, JSONL-Log)
+Ereignisse (Weboberfläche, CLI, JSONL-Log, Discord)
 ```
 
 - **Host-Erkennung:** Ein Host gilt als online, wenn er auf mindestens einem Erkennungs-Port antwortet – auch ein „Verbindung abgelehnt“ zählt, denn das beweist, dass er da ist. Dafür sind keine Root-Rechte nötig. Geräte, die alle Ports stumm verwerfen, sieht diese Erkennung nicht.
@@ -32,7 +32,18 @@ Ereignisse (Weboberfläche, CLI, JSONL-Log)
 | Port neu offen | **Warnung** |
 | Port nicht mehr offen | Info |
 
-Die Schwellen sind pro Netz einstellbar. „Nicht gesehen“ wird an den tatsächlich gelaufenen Erkennungen gemessen: Fällt der Crawler aus, werden nicht plötzlich alle Hosts als verschwunden gemeldet.
+Die Schwellen sind pro Netz einstellbar.
+
+### Benachrichtigung per Discord
+
+Unter **Benachrichtigungen** eine Discord-Webhook-URL eintragen (Discord: Servereinstellungen → Integrationen → Webhooks → „Neuer Webhook“ → „Webhook-URL kopieren“), die Stufe wählen und aktivieren. „Testnachricht senden“ prüft die Verbindung.
+
+- **Melden ab:** *Info* (alle Änderungen inkl. neuer Hosts), *Warnung* (Standard: neu offene Ports, Hosts 7 Tage weg) oder *Kritisch*.
+- Gesendet werden nur Änderungen ab dem Speichern, nie der Initialbestand. Der Scheduler prüft alle 30 Sekunden und bündelt bis zu 25 Änderungen in einer Nachricht.
+- Ist Discord nicht erreichbar, bleiben die Änderungen vorgemerkt; neuer Versuch nach 1 Minute, danach mit wachsendem Abstand bis 15 Minuten. Der letzte Fehler steht auf der Seite.
+- Die Webhook-URL ist ein Zugangsschlüssel. Sie wird nur in der Datenbank gespeichert und nie wieder angezeigt (auch nicht im Audit-Log). Erlaubt sind nur Adressen von `discord.com`.
+- Hostnamen stammen aus DNS-Antworten, die Geräte im Netz selbst festlegen können. Sie werden in der Nachricht maskiert und können niemanden erwähnen (`@everyone` o. Ä.).
+- Der Server braucht dafür ausgehenden HTTPS-Zugang zu `discord.com`. „Nicht gesehen“ wird an den tatsächlich gelaufenen Erkennungen gemessen: Fällt der Crawler aus, werden nicht plötzlich alle Hosts als verschwunden gemeldet.
 
 ## Freigabe: was ein Crawler scannen darf
 
@@ -65,7 +76,7 @@ Im Browser unter `http://127.0.0.1:8080` anmelden. Unter „Crawler“ lässt si
 
 ## Weboberfläche
 
-Unter `/`: **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung), **Netze** (anlegen, „Erkennung jetzt“, „Portscan jetzt“), **Jobs**, **Crawler** (anlegen mit Installationsbefehl, Status online/offline, deaktivieren) und **Audit-Log**. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
+Unter `/`: **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung), **Netze** (anlegen, „Erkennung jetzt“, „Portscan jetzt“), **Jobs**, **Crawler** (anlegen mit Installationsbefehl, Status online/offline, deaktivieren), **Benachrichtigungen** (Discord) und **Audit-Log**. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
 
 ## Einrichtung für ein echtes Netz
 
@@ -172,6 +183,8 @@ Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `craw
 | `GET` | `/api/v1/admin/hosts?network_id=` | Inventar |
 | `POST` | `/api/v1/admin/hosts/important` | `{"network_id", "ip", "important"}` |
 | `GET` | `/api/v1/admin/events?network_id=&ip=&baseline=1&limit=` | Ereignisse, neueste zuerst |
+| `GET`/`PUT` | `/api/v1/admin/notifications` | Discord-Einstellungen (`discord_url`, `min_severity`, `enabled`, `clear_discord_url`); die URL wird nie zurückgegeben |
+| `POST` | `/api/v1/admin/notifications/test` | Testnachricht senden |
 | `GET`/`POST` | `/api/v1/admin/jobs` | Jobs auflisten / einzelnen Job anlegen |
 | `GET` | `/api/v1/admin/jobs/{id}` | Job mit Ergebnis |
 | `GET` | `/api/v1/admin/audit` | Audit-Log |

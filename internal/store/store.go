@@ -183,6 +183,21 @@ type Event struct {
 	Baseline bool
 }
 
+// NotificationSettings configure change notifications (one set per
+// server). The webhook URL is a credential: anyone who has it can post.
+type NotificationSettings struct {
+	DiscordURL string
+	// MinSeverity is the lowest severity sent: info, warning or critical.
+	MinSeverity string
+	Enabled     bool
+	// Since: only events at or after this time are sent, so enabling or
+	// changing the settings does not send the whole history.
+	Since      time.Time
+	UpdatedAt  time.Time
+	LastSentAt *time.Time
+	LastError  string
+}
+
 // EventFilter selects events, newest first.
 type EventFilter struct {
 	NetworkID int64 // 0: all networks
@@ -275,6 +290,18 @@ type Store interface {
 	Hosts(ctx context.Context, networkID int64) ([]Host, error)
 	SetHostImportant(ctx context.Context, networkID int64, ip string, important bool) error
 	ListEvents(ctx context.Context, f EventFilter) ([]Event, error)
+
+	// NotificationSettings returns the settings (zero value if none).
+	NotificationSettings(ctx context.Context) (NotificationSettings, error)
+	// SaveNotificationSettings stores URL, severity, enabled, since and
+	// updated-at; it keeps LastSentAt and LastError.
+	SaveNotificationSettings(ctx context.Context, n NotificationSettings) error
+	// RecordNotification stores the outcome of the last delivery attempt.
+	RecordNotification(ctx context.Context, sentAt *time.Time, lastError string) error
+	// PendingEvents returns events not yet notified, without baseline
+	// events, at or after since, with one of the severities, oldest first.
+	PendingEvents(ctx context.Context, since time.Time, severities []string, limit int) ([]Event, error)
+	MarkEventsNotified(ctx context.Context, ids []int64, at time.Time) error
 
 	Audit(ctx context.Context, actor, action string, details any) error
 	ListAudit(ctx context.Context, limit int) ([]AuditEntry, error)

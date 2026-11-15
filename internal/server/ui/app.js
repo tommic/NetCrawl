@@ -88,6 +88,7 @@ async function showApp(username) {
 }
 
 function selectTab(tab) {
+  if (tab === "settings" && currentTab !== "settings") renderNotify(true);
   currentTab = tab;
   for (const b of $$(".tab")) b.classList.toggle("active", b.dataset.tab === tab);
   for (const p of $$(".panel")) p.hidden = p.dataset.panel !== tab;
@@ -110,6 +111,7 @@ async function refresh() {
       case "jobs": return renderJobs();
       case "crawlers": return renderCrawlers(crawlers);
       case "audit": return renderAudit();
+      case "settings": return renderNotify(false);
     }
   } catch (e) {
     if (e.status === 401) showLogin();
@@ -374,6 +376,30 @@ async function showInstall(id, reverseDNS) {
   }
 }
 
+// renderNotify shows the notification settings. full=false (periodic
+// refresh) only updates the status line, so typing is not interrupted.
+async function renderNotify(full) {
+  const v = await api("GET", "/api/v1/admin/notifications");
+  const st = $("#notify-status");
+  if (!v.discord_configured) st.textContent = "Noch kein Webhook eingerichtet.";
+  else {
+    let t = `Webhook: ${v.discord_hint} · ${v.enabled ? "aktiv" : "pausiert"}`;
+    if (v.last_sent_at) t += ` · zuletzt gesendet ${fmt(v.last_sent_at)}`;
+    st.textContent = t;
+  }
+  if (v.last_error) {
+    const e = el("span", ` · Fehler: ${v.last_error}`, "error");
+    st.appendChild(e);
+  }
+  $("#notify-clear").hidden = !v.discord_configured;
+  if (!full) return;
+  const f = $("#notify-form");
+  f.discord_url.value = "";
+  f.discord_url.placeholder = v.discord_configured ? "gespeichert – leer lassen, um sie zu behalten" : "https://discord.com/api/webhooks/…";
+  f.min_severity.value = v.min_severity;
+  f.enabled.checked = v.enabled;
+}
+
 async function renderAudit() {
   const audit = await api("GET", "/api/v1/admin/audit?limit=100");
   const tbody = $("#audit");
@@ -454,6 +480,40 @@ document.addEventListener("DOMContentLoaded", async () => {
       showJob(j.id);
     } catch (e) {
       message("#job-msg", "Abgelehnt: " + e.message, true);
+    }
+  });
+
+  $("#notify-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    try {
+      await api("PUT", "/api/v1/admin/notifications", {
+        discord_url: f.discord_url.value.trim(), min_severity: f.min_severity.value, enabled: f.enabled.checked,
+      });
+      message("#notify-msg", "Gespeichert. Gemeldet werden Änderungen ab jetzt.");
+      await renderNotify(true);
+    } catch (e) {
+      message("#notify-msg", "Nicht gespeichert: " + e.message, true);
+    }
+  });
+  $("#notify-test").addEventListener("click", async () => {
+    try {
+      await api("POST", "/api/v1/admin/notifications/test", {});
+      message("#notify-msg", "Testnachricht gesendet – bitte im Discord-Kanal nachsehen.");
+    } catch (e) {
+      message("#notify-msg", "Test fehlgeschlagen: " + e.message, true);
+    }
+    await renderNotify(false);
+  });
+  $("#notify-clear").addEventListener("click", async () => {
+    if (!confirm("Webhook entfernen? Benachrichtigungen werden damit abgeschaltet.")) return;
+    try {
+      const f = $("#notify-form");
+      await api("PUT", "/api/v1/admin/notifications", { clear_discord_url: true, min_severity: f.min_severity.value, enabled: false });
+      message("#notify-msg", "Webhook entfernt.");
+      await renderNotify(true);
+    } catch (e) {
+      message("#notify-msg", "Nicht möglich: " + e.message, true);
     }
   });
 
