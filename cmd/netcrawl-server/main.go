@@ -30,6 +30,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"netcrawler/internal/eventlog"
 	"netcrawler/internal/server"
 	"netcrawler/internal/store"
 	"netcrawler/internal/store/pgstore"
@@ -47,6 +48,13 @@ Usage:
   netcrawl-server job create --crawler ID --target T[,T] --ports P[,P] [--ttl 5m] [--timeout-ms 500] [--max-hosts N]
   netcrawl-server job list [--limit 20]
   netcrawl-server job show JOB_ID
+  netcrawl-server network add --crawler ID --name NAME --target CIDR[,..] [--deny IP,..] [--discovery-ports P,..]
+                              [--scan-ports P,.. | --scan-preset top100] [--discovery-interval 30m] [--portscan-interval 24h]
+                              [--offline-info 24h] [--offline-warn 168h] [--no-reverse-dns]
+  netcrawl-server network list
+  netcrawl-server network scan --id N [--kind discovery|ports]
+  netcrawl-server hosts [--network N]
+  netcrawl-server events [--network N] [--limit 50] [--baseline]
 
 Every command accepts --database-url (default: $NETCRAWL_DATABASE_URL).
 `
@@ -69,7 +77,7 @@ func run(args []string) error {
 		return nil
 	}
 	sub := ""
-	if cmd == "admin" || cmd == "crawler" || cmd == "job" {
+	if cmd == "admin" || cmd == "crawler" || cmd == "job" || cmd == "network" {
 		if len(rest) == 0 {
 			return fmt.Errorf("%s: missing subcommand (see --help)", cmd)
 		}
@@ -96,6 +104,8 @@ func run(args []string) error {
 		secureCookies := fs.Bool("secure-cookies", false, "set the Secure flag on session cookies (implied by --tls-cert; use behind an HTTPS proxy)")
 		noMigrate := fs.Bool("no-migrate", false, "do not apply database migrations at start")
 		embeddable := fs.Bool("embeddable", false, "TEST ONLY: allow the UI inside frames of other sites (cookie SameSite=None; Secure, requires HTTPS in front)")
+		eventLogDir := fs.String("event-log-dir", os.Getenv("NETCRAWL_EVENT_LOG_DIR"), "directory for the JSONL event log (one file per day, kept 180 days); empty: no file log")
+		schedInterval := fs.Duration("scheduler-interval", 30*time.Second, "how often the scheduler checks for due network scans")
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
@@ -112,7 +122,15 @@ func run(args []string) error {
 				return err
 			}
 		}
-		return serve(ctx, st, *listen, *tlsCert, *tlsKey, server.Options{SecureCookies: *secureCookies || *tlsCert != "", Embeddable: *embeddable})
+		opts := server.Options{SecureCookies: *secureCookies || *tlsCert != "", Embeddable: *embeddable}
+		if *eventLogDir != "" {
+			w, err := eventlog.New(*eventLogDir, eventlog.DefaultRetention)
+			if err != nil {
+				return err
+			}
+			opts.EventLog = w
+		}
+		return serve(ctx, st, *listen, *tlsCert, *tlsKey, opts, *schedInterval)
 
 	case "migrate ":
 		if err := fs.Parse(rest); err != nil {
@@ -252,6 +270,157 @@ func run(args []string) error {
 		}
 		return tw.Flush()
 
+	case "network add":
+		crawler := fs.String("crawler", "", "crawler id")
+		name := fs.String("name", "", "network name")
+		target := fs.String("target", "", "comma separated targets (CIDR, address, range)")
+		deny := fs.String("deny", "", "comma separated addresses/ranges to exclude")
+		discPorts := fs.String("discovery-ports", "", "ports for host discovery (default: preset discovery)")
+		scanPorts := fs.String("scan-ports", "", "ports for the port scan (default: --scan-preset)")
+		scanPreset := fs.String("scan-preset", "", "port preset for the port scan (default top100)")
+		discEvery := fs.Duration("discovery-interval", server.DefaultDiscoveryMinutes*time.Minute, "host discovery interval")
+		scanEvery := fs.Duration("portscan-interval", server.DefaultPortscanHours*time.Hour, "port scan interval")
+		offInfo := fs.Duration("offline-info", server.DefaultOfflineInfoHours*time.Hour, "info event when a host is gone this long")
+		offWarn := fs.Duration("offline-warn", server.DefaultOfflineWarnHours*time.Hour, "warning event when a host is gone this long")
+		noDNS := fs.Bool("no-reverse-dns", false, "do not ask crawlers for PTR lookups")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		dp, err := parsePorts(*discPorts)
+		if err != nil {
+			return err
+		}
+		sp, err := parsePorts(*scanPorts)
+		if err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		rdns := !*noDNS
+		n, err := server.CreateNetwork(ctx, st, "cli", server.NetworkRequest{
+			CrawlerID: *crawler, Name: *name, Targets: splitList(*target), Deny: splitList(*deny),
+			DiscoveryPorts: dp, ScanPorts: sp, ScanPreset: *scanPreset,
+			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalHours: int(scanEvery.Hours()),
+			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()), ReverseDNS: &rdns,
+		}, time.Now())
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Network %d %q created for crawler %q: %s (deny: %s), discovery every %s, port scan every %s.\n",
+			n.ID, n.Name, n.CrawlerID, strings.Join(n.Targets, ","), strings.Join(n.Deny, ","), n.DiscoveryInterval, n.PortscanInterval)
+		fmt.Println("The running server schedules the first discovery within its scheduler interval.")
+		return nil
+
+	case "network list":
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		list, err := st.ListNetworks(ctx)
+		if err != nil {
+			return err
+		}
+		hosts, err := st.Hosts(ctx, 0)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "ID\tNAME\tCRAWLER\tTARGETS\tDENY\tHOSTS\tONLINE\tENABLED\tLAST DISCOVERY")
+		for _, n := range list {
+			total, online := 0, 0
+			for _, h := range hosts {
+				if h.NetworkID == n.ID {
+					total++
+					if h.OfflineLevel == "" {
+						online++
+					}
+				}
+			}
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%d\t%d\t%v\t%s\n", n.ID, n.Name, n.CrawlerID, strings.Join(n.Targets, ","),
+				strings.Join(n.Deny, ","), total, online, n.Enabled, fmtTime(n.DiscoveryDoneAt))
+		}
+		return tw.Flush()
+
+	case "network scan":
+		id := fs.Int64("id", 0, "network id")
+		kind := fs.String("kind", "discovery", "discovery or ports")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		if err := server.New(st, server.Options{}).ScanNow(ctx, "cli", *id, *kind); err != nil {
+			return err
+		}
+		fmt.Println("Job created; the crawler picks it up at its next poll.")
+		return nil
+
+	case "hosts ":
+		nid := fs.Int64("network", 0, "network id (default: all)")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		hosts, err := st.Hosts(ctx, *nid)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "NET\tIP\tHOSTNAME\tSTATUS\tOPEN PORTS\tFIRST SEEN\tLAST SEEN")
+		for _, h := range hosts {
+			status := "online"
+			if h.OfflineLevel != "" {
+				status = "offline (" + h.OfflineLevel + ")"
+			}
+			if h.Important {
+				status += " *"
+			}
+			var ps []int
+			for _, p := range h.Ports {
+				ps = append(ps, p.Port)
+			}
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", h.NetworkID, h.IP, h.Hostname, status, joinInts(ps),
+				fmtTime(&h.FirstSeen), fmtTime(&h.LastSeen))
+		}
+		return tw.Flush()
+
+	case "events ":
+		nid := fs.Int64("network", 0, "network id (default: all)")
+		limit := fs.Int("limit", 50, "number of events")
+		baseline := fs.Bool("baseline", false, "include events of the initial inventory")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		events, err := st.ListEvents(ctx, store.EventFilter{NetworkID: *nid, Limit: *limit, IncludeBaseline: *baseline})
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "TIME\tNET\tSEVERITY\tTYPE\tMESSAGE")
+		for _, e := range events {
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", fmtTime(&e.At), e.NetworkID, e.Severity, e.Type, e.Message)
+		}
+		return tw.Flush()
+
 	case "job show":
 		if err := fs.Parse(rest); err != nil {
 			return err
@@ -294,7 +463,7 @@ func migrate(ctx context.Context, st *pgstore.Store) error {
 	return nil
 }
 
-func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string, opts server.Options) error {
+func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string, opts server.Options, schedInterval time.Duration) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	opts.Logger = logger
 	if opts.Embeddable {
@@ -309,6 +478,7 @@ func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+	go srv.RunScheduler(ctx, schedInterval)
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("netcrawl-server listening", "addr", listen, "tls", certFile != "", "version", version.Version)
@@ -327,6 +497,13 @@ func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+func fmtTime(t *time.Time) string {
+	if t == nil {
+		return "-"
+	}
+	return t.Local().Format("2006-01-02 15:04")
 }
 
 func splitList(s string) []string {

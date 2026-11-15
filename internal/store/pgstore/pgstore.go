@@ -237,10 +237,18 @@ func (s *Store) PurgeNonces(ctx context.Context, before time.Time) error {
 }
 
 func (s *Store) CreateJob(ctx context.Context, j store.Job) error {
+	if j.Kind == "" {
+		j.Kind = "ports"
+	}
+	if j.Deny == nil {
+		j.Deny = []string{}
+	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO jobs
-		(id, crawler_id, targets, ports, max_hosts, timeout_ms, result_token, status, created_by, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		j.ID, j.CrawlerID, j.Targets, j.Ports, j.MaxHosts, j.TimeoutMs, j.ResultToken, j.Status, j.CreatedBy, j.CreatedAt, j.ExpiresAt)
+		(id, crawler_id, targets, ports, max_hosts, timeout_ms, result_token, status, created_by, created_at, expires_at,
+		 network_id, kind, deny, reverse_dns)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		j.ID, j.CrawlerID, j.Targets, j.Ports, j.MaxHosts, j.TimeoutMs, j.ResultToken, j.Status, j.CreatedBy, j.CreatedAt, j.ExpiresAt,
+		j.NetworkID, j.Kind, j.Deny, j.ReverseDNS)
 	switch {
 	case isUniqueViolation(err):
 		return store.ErrExists
@@ -251,13 +259,13 @@ func (s *Store) CreateJob(ctx context.Context, j store.Job) error {
 }
 
 const jobColumns = `id::text, crawler_id, targets, ports, max_hosts, timeout_ms, result_token, status, created_by,
-	created_at, expires_at, delivered_at, completed_at`
+	created_at, expires_at, delivered_at, completed_at, network_id, kind, deny, reverse_dns`
 
 func scanJob(row pgx.Row) (store.Job, error) {
 	var j store.Job
 	var ports []int32
 	err := row.Scan(&j.ID, &j.CrawlerID, &j.Targets, &ports, &j.MaxHosts, &j.TimeoutMs, &j.ResultToken, &j.Status,
-		&j.CreatedBy, &j.CreatedAt, &j.ExpiresAt, &j.DeliveredAt, &j.CompletedAt)
+		&j.CreatedBy, &j.CreatedAt, &j.ExpiresAt, &j.DeliveredAt, &j.CompletedAt, &j.NetworkID, &j.Kind, &j.Deny, &j.ReverseDNS)
 	for _, p := range ports {
 		j.Ports = append(j.Ports, int(p))
 	}
@@ -398,6 +406,7 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]store.AuditEntry, e
 
 // Reset drops all data. Only for tests.
 func (s *Store) Reset(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `TRUNCATE admin_sessions, admin_users, crawler_nonces, job_results, jobs, crawlers, audit_log RESTART IDENTITY CASCADE`)
+	_, err := s.pool.Exec(ctx, `TRUNCATE admin_sessions, admin_users, crawler_nonces, job_results, jobs, crawlers, audit_log,
+		events, host_ports, hosts, networks RESTART IDENTITY CASCADE`)
 	return err
 }

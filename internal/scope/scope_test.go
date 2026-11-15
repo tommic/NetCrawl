@@ -5,26 +5,37 @@ import (
 	"testing"
 )
 
-func TestCheckPilot(t *testing.T) {
-	if err := CheckPilot([]string{"127.0.0.1/32"}, 1); err != nil {
-		t.Errorf("pilot scope rejected: %v", err)
+func TestCheckRelease(t *testing.T) {
+	for _, allow := range [][]string{
+		{"127.0.0.1/32"}, {"192.168.1.0/24"}, {"10.0.0.0/8"}, {"172.16.0.0/12"},
+		{"169.254.1.0/24"}, {"100.64.0.0/10"}, {"192.168.1.10-192.168.1.20", "10.1.2.3"},
+	} {
+		if err := CheckRelease(allow, 256, false); err != nil {
+			t.Errorf("CheckRelease(%q): %v", allow, err)
+		}
 	}
-	for _, tt := range []struct {
+	bad := []struct {
 		allow []string
 		max   int
+		want  string
 	}{
-		{[]string{"127.0.0.2/32"}, 1},
-		{[]string{"127.0.0.1"}, 1},
-		{[]string{"127.0.0.0/8"}, 1},
-		{[]string{"192.168.1.0/24"}, 1},
-		{[]string{"127.0.0.1/32", "10.0.0.1"}, 1},
-		{nil, 1},
-		{[]string{"127.0.0.1/32"}, 2},
-		{[]string{"127.0.0.1/32"}, 0},
-	} {
-		if err := CheckPilot(tt.allow, tt.max); err == nil {
-			t.Errorf("CheckPilot(%q, %d) accepted", tt.allow, tt.max)
+		{[]string{"8.8.8.0/24"}, 256, "not a private"},
+		{[]string{"192.168.1.0/24", "1.1.1.1"}, 256, "not a private"},
+		{[]string{"172.15.0.0/16"}, 256, "not a private"},
+		{[]string{"192.168.0.0/15"}, 256, "not a private"},
+		{nil, 1, "empty"},
+		{[]string{"nope"}, 1, "allowlist entry"},
+		{[]string{"192.168.1.0/24"}, 0, "host limit"},
+		{[]string{"192.168.1.0/24"}, MaxHostsLimit + 1, "host limit"},
+	}
+	for _, b := range bad {
+		err := CheckRelease(b.allow, b.max, false)
+		if err == nil || !strings.Contains(err.Error(), b.want) {
+			t.Errorf("CheckRelease(%q, %d) = %v, want %q", b.allow, b.max, err, b.want)
 		}
+	}
+	if err := CheckRelease([]string{"8.8.8.0/24"}, 256, true); err != nil {
+		t.Errorf("public range with allowPublic: %v", err)
 	}
 }
 

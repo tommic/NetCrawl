@@ -69,10 +69,25 @@ type Job struct {
 	MaxHosts  int      `json:"max_hosts"`
 	Ports     []int    `json:"ports"`
 	TimeoutMs int      `json:"timeout_ms"`
+	// Kind is JobKindPorts (report open ports) or JobKindDiscovery (report
+	// which hosts are alive; open ports are a by-product). Empty means
+	// JobKindPorts.
+	Kind string `json:"kind,omitempty"`
+	// Deny lists addresses/ranges inside Targets that must not be contacted.
+	Deny []string `json:"deny,omitempty"`
+	// ReverseDNS asks for PTR lookups of found hosts. The agent only does
+	// them if its local config allows it.
+	ReverseDNS bool `json:"reverse_dns,omitempty"`
 	// ResultToken (base64url) is the HMAC key for this job's result. It is
 	// valid for exactly one accepted result.
 	ResultToken string `json:"result_token"`
 }
+
+// Job kinds.
+const (
+	JobKindPorts     = "ports"
+	JobKindDiscovery = "discovery"
+)
 
 // Result is what an agent reports for a job.
 type Result struct {

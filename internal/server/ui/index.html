@@ -10,7 +10,14 @@
 <body>
 <header>
   <h1>NetCrawl</h1>
-  <span class="pilot">Loopback-Pilot</span>
+  <nav id="tabs" hidden>
+    <button data-tab="events" class="tab active">Ereignisse <span id="badge" class="badge" hidden></span></button>
+    <button data-tab="hosts" class="tab">Inventar</button>
+    <button data-tab="networks" class="tab">Netze</button>
+    <button data-tab="jobs" class="tab">Jobs</button>
+    <button data-tab="crawlers" class="tab">Crawler</button>
+    <button data-tab="audit" class="tab">Audit</button>
+  </nav>
   <span id="who" hidden></span>
   <button id="logout" class="ghost" hidden>Abmelden</button>
 </header>
@@ -27,42 +34,121 @@
   </section>
 
   <section id="app-view" hidden>
-    <div class="card">
-      <h2>Neuer Job</h2>
-      <form id="job-form" class="row">
-        <label>Crawler <select name="crawler_id" required></select></label>
-        <label>Ziel <input name="target" value="127.0.0.1/32" required></label>
-        <label>Ports <input name="ports" value="22,80,443,18081,18082" required></label>
-        <label>Gültig (Min.) <input name="ttl" type="number" min="1" max="60" value="5" required></label>
-        <button type="submit">Job anlegen</button>
-      </form>
-      <p id="job-msg" hidden></p>
+    <div class="panel" data-panel="events">
+      <div class="card">
+        <div class="title-row">
+          <h2>Ereignisse</h2>
+          <div class="row">
+            <label class="inline"><input type="checkbox" id="ev-baseline"> Initialbestand anzeigen</label>
+            <select id="ev-network"><option value="0">Alle Netze</option></select>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Zeit</th><th>Netz</th><th>Stufe</th><th>Meldung</th></tr></thead>
+          <tbody id="events"></tbody>
+        </table>
+      </div>
     </div>
 
-    <div class="card">
-      <div class="title-row"><h2>Jobs</h2><button id="refresh" class="ghost">Aktualisieren</button></div>
-      <table>
-        <thead><tr><th>Erstellt</th><th>Crawler</th><th>Status</th><th>Ziele</th><th>Ports</th><th>Läuft ab</th></tr></thead>
-        <tbody id="jobs"></tbody>
-      </table>
-      <p class="hint">Zeile anklicken für das Ergebnis.</p>
-      <div id="job-detail" hidden></div>
+    <div class="panel" data-panel="hosts" hidden>
+      <div class="card">
+        <div class="title-row">
+          <h2>Inventar</h2>
+          <select id="host-network"><option value="0">Alle Netze</option></select>
+        </div>
+        <table>
+          <thead><tr><th>Netz</th><th>IP</th><th>Hostname</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte lösen nach der Warnschwelle eine kritische Meldung aus">Wichtig</th></tr></thead>
+          <tbody id="hosts"></tbody>
+        </table>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Crawler</h2>
-      <table>
-        <thead><tr><th>ID</th><th>Allowlist</th><th>Max. Hosts</th><th>Zuletzt gesehen</th></tr></thead>
-        <tbody id="crawlers"></tbody>
-      </table>
+    <div class="panel" data-panel="networks" hidden>
+      <div class="card">
+        <h2>Netze</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Crawler</th><th>Bereich</th><th>Ausgenommen</th><th>Hosts</th><th>Letzte Erkennung</th><th>Letzter Portscan</th><th>Aktiv</th><th></th></tr></thead>
+          <tbody id="networks"></tbody>
+        </table>
+        <p class="hint">Host-Erkennung und Portscan laufen automatisch nach Zeitplan. „Jetzt“ startet sie sofort (der Crawler holt den Job beim nächsten Abfragen ab).</p>
+      </div>
+      <div class="card">
+        <h2>Neues Netz</h2>
+        <form id="network-form" class="row">
+          <label>Crawler <select name="crawler_id" class="crawler-select" required></select></label>
+          <label>Name <input name="name" placeholder="Heimnetz" required></label>
+          <label>Bereich <input name="targets" placeholder="192.168.1.0/24" required></label>
+          <label>Ausnehmen (Deny) <input name="deny" placeholder="192.168.1.1, 192.168.1.200-192.168.1.210"></label>
+          <label>Erkennung alle (Min.) <input name="discovery" type="number" min="5" value="30" required></label>
+          <label>Portscan alle (Std.) <input name="portscan" type="number" min="1" value="24" required></label>
+          <label>Ports beim Portscan
+            <select name="scan_preset">
+              <option value="top100">Top 100</option>
+              <option value="common">Common (17)</option>
+              <option value="web">Web</option>
+              <option value="database">Datenbanken</option>
+              <option value="tiny">Tiny (22, 80, 443)</option>
+            </select>
+          </label>
+          <label class="inline"><input type="checkbox" name="reverse_dns" checked> Hostnamen per DNS</label>
+          <button type="submit">Netz anlegen</button>
+        </form>
+        <p id="network-msg" hidden></p>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Audit-Log</h2>
-      <table>
-        <thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Details</th></tr></thead>
-        <tbody id="audit"></tbody>
-      </table>
+    <div class="panel" data-panel="jobs" hidden>
+      <div class="card">
+        <h2>Einzelnen Job anlegen</h2>
+        <form id="job-form" class="row">
+          <label>Crawler <select name="crawler_id" class="crawler-select" required></select></label>
+          <label>Ziel <input name="target" value="127.0.0.1/32" required></label>
+          <label>Ports <input name="ports" value="22,80,443,18081,18082" required></label>
+          <label>Gültig (Min.) <input name="ttl" type="number" min="1" max="60" value="5" required></label>
+          <button type="submit">Job anlegen</button>
+        </form>
+        <p id="job-msg" hidden></p>
+      </div>
+      <div class="card">
+        <div class="title-row"><h2>Jobs</h2><button id="refresh" class="ghost">Aktualisieren</button></div>
+        <table>
+          <thead><tr><th>Erstellt</th><th>Art</th><th>Crawler</th><th>Status</th><th>Ziele</th><th>Ports</th><th>Läuft ab</th></tr></thead>
+          <tbody id="jobs"></tbody>
+        </table>
+        <p class="hint">Zeile anklicken für das Ergebnis.</p>
+        <div id="job-detail" hidden></div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="crawlers" hidden>
+      <div class="card">
+        <h2>Crawler</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Freigabe (Allowlist)</th><th>Max. Hosts</th><th>Zuletzt gesehen</th></tr></thead>
+          <tbody id="crawlers"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Crawler registrieren</h2>
+        <form id="crawler-form" class="row">
+          <label>ID <input name="id" placeholder="lan-1" required></label>
+          <label>Freigabe <input name="allow" placeholder="192.168.1.0/24" required></label>
+          <label>Max. Hosts <input name="max_hosts" type="number" min="1" value="256" required></label>
+          <button type="submit">Registrieren</button>
+        </form>
+        <p class="hint">Nur private Adressbereiche. Der Crawler braucht dieselbe Freigabe zusätzlich in seiner lokalen <code>agent.json</code>.</p>
+        <div id="crawler-msg" hidden></div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="audit" hidden>
+      <div class="card">
+        <h2>Audit-Log</h2>
+        <table>
+          <thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Details</th></tr></thead>
+          <tbody id="audit"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>
