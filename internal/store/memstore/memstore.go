@@ -39,6 +39,7 @@ type Store struct {
 	enrolls  map[string]store.Enrollment
 	notify   store.NotificationSettings
 	notified map[int64]time.Time
+	settings map[string]string
 }
 
 // New returns an empty store.
@@ -54,6 +55,7 @@ func New() *Store {
 		hosts:    map[int64]map[string]store.Host{},
 		enrolls:  map[string]store.Enrollment{},
 		notified: map[int64]time.Time{},
+		settings: map[string]string{},
 	}
 }
 
@@ -155,6 +157,37 @@ func (s *Store) SetCrawlerEnabled(_ context.Context, id string, enabled bool) er
 	}
 	c.Enabled = enabled
 	s.crawlers[id] = c
+	return nil
+}
+
+func (s *Store) UpdateCrawlerRelease(_ context.Context, id string, allow []string, maxHosts int, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.crawlers[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	c.Allow, c.MaxHosts, c.ReinstallRequired = slices.Clone(allow), maxHosts, true
+	s.crawlers[id] = c
+	for jid, j := range s.jobs {
+		if j.CrawlerID == id && (j.Status == store.JobPending || j.Status == store.JobDelivered) && j.ExpiresAt.After(now) {
+			j.ExpiresAt = now
+			s.jobs[jid] = j
+		}
+	}
+	return nil
+}
+
+func (s *Store) Setting(_ context.Context, key string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.settings[key], nil
+}
+
+func (s *Store) SetSetting(_ context.Context, key, value string, _ time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings[key] = value
 	return nil
 }
 
@@ -601,6 +634,7 @@ func (s *Store) RedeemEnrollment(_ context.Context, tokenHash, newSecret []byte,
 	e.UsedAt = &t
 	s.enrolls[string(tokenHash)] = e
 	c.Secret = slices.Clone(newSecret)
+	c.ReinstallRequired = false
 	s.crawlers[c.ID] = c
 	return c, e, nil
 }

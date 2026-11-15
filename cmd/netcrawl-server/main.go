@@ -118,7 +118,7 @@ func run(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		tlsCert, tlsKey, install, err := tf.resolve()
+		tlsCert, tlsKey, install, installDefaults, err := tf.resolve()
 		if err != nil {
 			return err
 		}
@@ -132,7 +132,7 @@ func run(args []string) error {
 				return err
 			}
 		}
-		opts := server.Options{SecureCookies: *secureCookies || tlsCert != "", Embeddable: *embeddable, Install: install}
+		opts := server.Options{SecureCookies: *secureCookies || tlsCert != "", Embeddable: *embeddable, Install: install, InstallDefaults: installDefaults}
 		if *eventLogDir != "" {
 			w, err := eventlog.New(*eventLogDir, eventlog.DefaultRetention)
 			if err != nil {
@@ -207,7 +207,7 @@ func run(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		_, _, install, err := tf.resolve()
+		_, _, install, defaults, err := tf.resolve()
 		if err != nil {
 			return err
 		}
@@ -216,6 +216,17 @@ func run(args []string) error {
 			return err
 		}
 		defer st.Close()
+		if install == nil {
+			// Public URL set in the web UI.
+			if u, err := st.Setting(ctx, server.SettingPublicURL); err == nil && u != "" {
+				ic := defaults
+				ic.PublicURL = u
+				if !strings.HasPrefix(u, "https://") {
+					ic.TLSPin = ""
+				}
+				install = &ic
+			}
+		}
 		v, err := server.CreateEnrollment(ctx, st, install, "cli", *id, *reverseDNS, time.Now())
 		if err != nil {
 			return err
@@ -522,10 +533,12 @@ func serve(ctx context.Context, st store.Store, listen, certFile, keyFile string
 	}
 	if ic := opts.Install; ic != nil {
 		logger.Info("crawler installer enabled", "public_url", ic.PublicURL, "tls_pin", ic.TLSPin)
-		for _, arch := range server.AgentArchs {
-			if _, err := os.Stat(filepath.Join(ic.AgentDir, "netcrawl-agent-linux-"+arch)); err != nil {
-				logger.Warn("installer: agent binary missing, installs on this architecture will fail", "arch", arch, "dir", ic.AgentDir)
-			}
+	} else {
+		logger.Info("crawler installer: no --public-url, it can be set in the web UI (Crawler tab)", "tls_pin", opts.InstallDefaults.TLSPin)
+	}
+	for _, arch := range server.AgentArchs {
+		if _, err := os.Stat(filepath.Join(opts.InstallDefaults.AgentDir, "netcrawl-agent-linux-"+arch)); err != nil {
+			logger.Warn("installer: agent binary missing, installs on this architecture will fail", "arch", arch, "dir", opts.InstallDefaults.AgentDir)
 		}
 	}
 	srv := server.New(st, opts)
@@ -584,48 +597,53 @@ func addTLSFlags(fs *flag.FlagSet) *tlsFlags {
 
 // resolve returns the certificate to serve (if any) and the installer
 // configuration (nil without --public-url).
-func (t *tlsFlags) resolve() (certFile, keyFile string, ic *server.InstallConfig, err error) {
+// resolve returns the certificate to serve (if any), the fixed installer
+// configuration (nil without --public-url) and the defaults (pin, agent
+// directory) used when the public URL is set in the web UI instead.
+func (t *tlsFlags) resolve() (certFile, keyFile string, ic *server.InstallConfig, defaults server.InstallConfig, err error) {
 	certFile, keyFile = *t.cert, *t.key
 	if (certFile == "") != (keyFile == "") {
-		return "", "", nil, errors.New("--tls-cert and --tls-key must be given together")
+		return "", "", nil, defaults, errors.New("--tls-cert and --tls-key must be given together")
 	}
 	if *t.selfSigned != "" {
 		if certFile != "" {
-			return "", "", nil, errors.New("use either --tls-cert/--tls-key or --tls-self-signed")
+			return "", "", nil, defaults, errors.New("use either --tls-cert/--tls-key or --tls-self-signed")
 		}
 		var hosts []string
 		if u, err := url.Parse(*t.publicURL); err == nil && u.Hostname() != "" {
 			hosts = append(hosts, u.Hostname())
 		}
 		if certFile, keyFile, err = tlspin.SelfSigned(*t.selfSigned, hosts); err != nil {
-			return "", "", nil, fmt.Errorf("self-signed certificate: %w", err)
+			return "", "", nil, defaults, fmt.Errorf("self-signed certificate: %w", err)
 		}
 	}
-	if *t.publicURL == "" {
-		return certFile, keyFile, nil, nil
-	}
-	ic = &server.InstallConfig{PublicURL: *t.publicURL, AgentDir: *t.agentDir}
+	defaults = server.InstallConfig{AgentDir: *t.agentDir}
 	switch p := *t.pin; p {
 	case "none", "":
 	case "auto":
 		if certFile != "" {
 			self, err := tlspin.IsSelfSigned(certFile)
 			if err != nil {
-				return "", "", nil, err
+				return "", "", nil, defaults, err
 			}
 			if self {
-				if ic.TLSPin, err = tlspin.PinFromFile(certFile); err != nil {
-					return "", "", nil, err
+				if defaults.TLSPin, err = tlspin.PinFromFile(certFile); err != nil {
+					return "", "", nil, defaults, err
 				}
 			}
 		}
 	default:
-		ic.TLSPin = p
+		defaults.TLSPin = p
 	}
-	if err := ic.Validate(); err != nil {
-		return "", "", nil, err
+	if *t.publicURL == "" {
+		return certFile, keyFile, nil, defaults, nil
 	}
-	return certFile, keyFile, ic, nil
+	fixed := defaults
+	fixed.PublicURL = *t.publicURL
+	if err := fixed.Validate(); err != nil {
+		return "", "", nil, defaults, err
+	}
+	return certFile, keyFile, &fixed, defaults, nil
 }
 
 func fmtTime(t *time.Time) string {

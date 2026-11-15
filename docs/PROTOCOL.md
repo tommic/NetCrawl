@@ -171,4 +171,6 @@ Plain HTTP akzeptiert der Crawler nur zu einem Server auf Loopback. Für jeden a
 
 Bei einem selbstsignierten Server-Zertifikat steht in `agent.json` `"tls_pin": "sha256//<base64>"`: Der Crawler akzeptiert dann nur ein Zertifikat mit genau diesem öffentlichen Schlüssel (SHA-256 der SubjectPublicKeyInfo, dasselbe Format wie `curl --pinnedpubkey`). Name und CA werden nicht geprüft, der Pin ist der Vertrauensanker. `tls_pin` und `ca_file` schließen sich aus.
 
-Ein deaktivierter Crawler erhält auf Job-Abfragen `401`, seine Ergebnisse werden mit `401` abgelehnt.
+Ein deaktivierter Crawler erhält auf Job-Abfragen `401`, seine Ergebnisse werden mit `401` abgelehnt. Nach `3` abgelehnten Abfragen in Folge beendet sich der Crawler mit Exit-Code `3` (Secret ersetzt, Crawler gesperrt oder Uhr mehr als 5 Minuten falsch); die systemd-Unit startet ihn dann nicht neu (`RestartPreventExitStatus=3`).
+
+Ändert der Admin die Freigabe eines Crawlers, verfallen dessen offene Jobs, und der Crawler wird als „Neuinstallation nötig“ markiert, bis ein Einmal-Code eingelöst wird. Die lokale Freigabe ändert sich nur durch die Neuinstallation.

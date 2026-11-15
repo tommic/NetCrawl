@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"Inventory":      testInventory,
 		"Enrollments":    testEnrollments,
 		"Notifications":  testNotifications,
+		"CrawlerRelease": testCrawlerRelease,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, newStore(t)) })
@@ -611,5 +613,51 @@ func testNotifications(t *testing.T, s store.Store) {
 	mustNoErr(t, err)
 	if len(pending) != 2 || pending[0].Message != "c" || pending[1].Message != "i" {
 		t.Fatalf("pending after mark = %+v", pending)
+	}
+}
+
+func testCrawlerRelease(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	c := addCrawler(t, s, "lab-1")
+	open := addJob(t, s, c.ID, t0, 10*time.Minute)
+	now := t0.Add(time.Minute)
+
+	wantErr(t, s.UpdateCrawlerRelease(ctx, "nope", []string{"127.0.0.0/29"}, 8, now), store.ErrNotFound)
+	mustNoErr(t, s.UpdateCrawlerRelease(ctx, c.ID, []string{"127.0.0.0/29", "10.0.0.0/24"}, 300, now))
+	got, err := s.Crawler(ctx, c.ID)
+	mustNoErr(t, err)
+	if strings.Join(got.Allow, ",") != "127.0.0.0/29,10.0.0.0/24" || got.MaxHosts != 300 || !got.ReinstallRequired {
+		t.Fatalf("crawler = %+v", got)
+	}
+	// Open jobs were planned under the old release: they expire.
+	if _, ok, err := s.NextJob(ctx, c.ID, now); err != nil || ok {
+		t.Fatalf("open job still deliverable: ok=%v err=%v", ok, err)
+	}
+	j, _ := s.Job(ctx, open.ID)
+	if j.ExpiresAt.After(now) {
+		t.Fatalf("job expires %v", j.ExpiresAt)
+	}
+
+	// Reinstalling clears the flag.
+	mustNoErr(t, s.CreateEnrollment(ctx, store.Enrollment{TokenHash: bytes.Repeat([]byte{5}, 32), CrawlerID: c.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}))
+	got, _, err = s.RedeemEnrollment(ctx, bytes.Repeat([]byte{5}, 32), bytes.Repeat([]byte{6}, 32), now)
+	mustNoErr(t, err)
+	if got.ReinstallRequired {
+		t.Fatal("redeem: flag not cleared in result")
+	}
+	if got, _ = s.Crawler(ctx, c.ID); got.ReinstallRequired {
+		t.Fatal("redeem: flag not cleared")
+	}
+
+	// Settings.
+	v, err := s.Setting(ctx, "public_url")
+	mustNoErr(t, err)
+	if v != "" {
+		t.Fatalf("unset setting = %q", v)
+	}
+	mustNoErr(t, s.SetSetting(ctx, "public_url", "https://192.168.1.5:8443", now))
+	mustNoErr(t, s.SetSetting(ctx, "public_url", "https://10.0.0.2:8443", now))
+	if v, _ = s.Setting(ctx, "public_url"); v != "https://10.0.0.2:8443" {
+		t.Fatalf("setting = %q", v)
 	}
 }

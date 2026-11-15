@@ -122,12 +122,39 @@
     </div>
 
     <div class="panel" data-panel="crawlers" hidden>
+      <div class="card" id="public-url-card" hidden>
+        <h2>Server-Adresse für Crawler</h2>
+        <p class="hint" id="public-url-text"></p>
+        <form id="public-url-form" class="row">
+          <label>Adresse <input name="public_url" size="36" spellcheck="false" required></label>
+          <button type="submit">Übernehmen</button>
+        </form>
+        <div id="public-url-msg" hidden></div>
+      </div>
       <div class="card">
         <h2>Crawler</h2>
         <table>
           <thead><tr><th>ID</th><th>Status</th><th>Freigabe (Allowlist)</th><th>Max. Hosts</th><th>Zuletzt gesehen</th><th></th></tr></thead>
           <tbody id="crawlers"></tbody>
         </table>
+        <div id="edit-box" hidden>
+          <h3>Freigabe von „<span id="edit-id"></span>“ ändern</h3>
+          <div class="notice">
+            <strong>Der Crawler muss danach neu installiert werden.</strong>
+            Die Freigabe ist auf dem Crawler-Rechner fest hinterlegt. Das ist Absicht: So kann ein kompromittierter Server
+            die Grenzen eines Crawlers nicht aus der Ferne erweitern. Bis zur Neuinstallation scannt der Crawler nur innerhalb
+            seiner alten Freigabe, offene Jobs werden verworfen. Netze, Inventar und Verlauf bleiben erhalten.
+          </div>
+          <form id="edit-form" class="row">
+            <label>Freigabe <input name="allow" size="36" required></label>
+            <label>Max. Hosts <input name="max_hosts" type="number" min="1" required></label>
+            <label class="inline"><input name="reverse_dns" type="checkbox" checked> Hostnamen (Reverse-DNS)</label>
+            <button type="submit">Speichern und neu installieren</button>
+            <button type="button" id="edit-cancel" class="ghost">Abbrechen</button>
+          </form>
+          <p class="hint">Mehrere Bereiche mit Komma trennen. Alle Netze dieses Crawlers müssen in die neue Freigabe passen.</p>
+          <div id="edit-msg" hidden></div>
+        </div>
         <div id="install-box" hidden></div>
       </div>
       <div class="card">

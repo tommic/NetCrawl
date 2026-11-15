@@ -60,7 +60,7 @@ func (s *Store) RedeemEnrollment(ctx context.Context, tokenHash, newSecret []byt
 	if _, err := tx.Exec(ctx, `UPDATE enrollments SET used_at = $2 WHERE token_hash = $1`, tokenHash, now); err != nil {
 		return store.Crawler{}, store.Enrollment{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE crawlers SET secret = $2 WHERE id = $1`, c.ID, newSecret); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE crawlers SET secret = $2, reinstall_required = false WHERE id = $1`, c.ID, newSecret); err != nil {
 		return store.Crawler{}, store.Enrollment{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -69,5 +69,6 @@ func (s *Store) RedeemEnrollment(ctx context.Context, tokenHash, newSecret []byt
 	t := now
 	e.UsedAt = &t
 	c.Secret = newSecret
+	c.ReinstallRequired = false
 	return c, e, nil
 }

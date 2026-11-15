@@ -201,24 +201,42 @@ func (s *Server) registerInstallRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+protocol.PathEnroll, s.handleEnroll)
 	mux.Handle("POST /api/v1/admin/crawlers/{id}/enroll", s.admin(s.handleCreateEnrollment))
 	mux.Handle("PUT /api/v1/admin/crawlers/{id}", s.admin(s.handleUpdateCrawler))
+	mux.Handle("GET /api/v1/admin/settings/public-url", s.admin(s.handleGetPublicURL))
+	mux.Handle("PUT /api/v1/admin/settings/public-url", s.admin(s.handleSetPublicURL))
 }
 
 func (s *Server) handleUpdateCrawler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Enabled *bool `json:"enabled"`
+		Enabled  *bool    `json:"enabled"`
+		Allow    []string `json:"allow"`
+		MaxHosts *int     `json:"max_hosts"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Enabled == nil {
-		writeError(w, http.StatusBadRequest, "nothing to change (expected \"enabled\")")
+	id := r.PathValue("id")
+	actor := adminFrom(r.Context()).Username
+	if req.Enabled == nil && req.Allow == nil && req.MaxHosts == nil {
+		writeError(w, http.StatusBadRequest, "nothing to change (expected \"enabled\" or \"allow\"/\"max_hosts\")")
 		return
 	}
-	if err := SetCrawlerEnabled(r.Context(), s.st, adminFrom(r.Context()).Username, r.PathValue("id"), *req.Enabled); err != nil {
-		s.serviceError(w, err)
-		return
+	if req.Allow != nil || req.MaxHosts != nil {
+		if req.Allow == nil || req.MaxHosts == nil {
+			writeError(w, http.StatusBadRequest, "a release change needs both allow and max_hosts")
+			return
+		}
+		if err := UpdateCrawlerRelease(r.Context(), s.st, actor, id, req.Allow, *req.MaxHosts, s.now()); err != nil {
+			s.serviceError(w, err)
+			return
+		}
 	}
-	c, err := s.st.Crawler(r.Context(), r.PathValue("id"))
+	if req.Enabled != nil {
+		if err := SetCrawlerEnabled(r.Context(), s.st, actor, id, *req.Enabled); err != nil {
+			s.serviceError(w, err)
+			return
+		}
+	}
+	c, err := s.st.Crawler(r.Context(), id)
 	if err != nil {
 		s.internalError(w, err)
 		return
@@ -233,7 +251,7 @@ func (s *Server) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	v, err := CreateEnrollment(r.Context(), s.st, s.install, adminFrom(r.Context()).Username, r.PathValue("id"), req.ReverseDNS, s.now())
+	v, err := CreateEnrollment(r.Context(), s.st, s.installConfig(r.Context()), adminFrom(r.Context()).Username, r.PathValue("id"), req.ReverseDNS, s.now())
 	if err != nil {
 		s.serviceError(w, err)
 		return
@@ -243,7 +261,8 @@ func (s *Server) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
-	if s.install == nil || !protocol.ValidToken(token) {
+	ic := s.installConfig(r.Context())
+	if ic == nil || !protocol.ValidToken(token) {
 		http.NotFound(w, r)
 		return
 	}
@@ -259,7 +278,7 @@ func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	}
 	var buf bytes.Buffer
 	err = installTemplate.Execute(&buf, map[string]string{
-		"ServerURL": s.install.baseURL(), "TLSPin": s.install.TLSPin, "CrawlerID": e.CrawlerID, "Token": token,
+		"ServerURL": ic.baseURL(), "TLSPin": ic.TLSPin, "CrawlerID": e.CrawlerID, "Token": token,
 		"SHA256AMD64": s.agents.sum("amd64"), "SHA256ARM64": s.agents.sum("arm64"),
 	})
 	if err != nil {
@@ -290,7 +309,7 @@ func (s *Server) handleAgentBinary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
-	if s.install == nil {
+	if s.installConfig(r.Context()) == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -327,4 +346,83 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		CrawlerID: c.ID, Secret: protocol.EncodeKey(secret), Allow: c.Allow, MaxHosts: c.MaxHosts,
 		ReverseDNS: e.ReverseDNS, IntervalSeconds: agent.MinPollInterval,
 	})
+}
+
+// SettingPublicURL is the server setting holding the public URL set in
+// the web UI.
+const SettingPublicURL = "public_url"
+
+// installConfig returns the active installer configuration: the fixed one
+// from the command line, else the public URL set in the web UI, else nil.
+func (s *Server) installConfig(ctx context.Context) *InstallConfig {
+	if s.install != nil {
+		return s.install
+	}
+	u, err := s.st.Setting(ctx, SettingPublicURL)
+	if err != nil || u == "" {
+		return nil
+	}
+	ic := s.uiInstallConfig(u)
+	if ic.Validate() != nil {
+		return nil
+	}
+	return &ic
+}
+
+// uiInstallConfig builds the installer configuration for a URL set in the
+// web UI: the server's own certificate pin applies to https only.
+func (s *Server) uiInstallConfig(u string) InstallConfig {
+	ic := s.installDefaults
+	ic.PublicURL = u
+	if !strings.HasPrefix(u, "https://") {
+		ic.TLSPin = ""
+	}
+	return ic
+}
+
+// PublicURLView describes the public URL setting.
+type PublicURLView struct {
+	PublicURL string `json:"public_url"`
+	// Source is "env" (NETCRAWL_PUBLIC_URL, not editable), "ui" or "".
+	Source string `json:"source"`
+	TLSPin string `json:"tls_pin,omitempty"`
+}
+
+func (s *Server) publicURLView(ctx context.Context) PublicURLView {
+	if s.install != nil {
+		return PublicURLView{PublicURL: s.install.PublicURL, Source: "env", TLSPin: s.install.TLSPin}
+	}
+	if ic := s.installConfig(ctx); ic != nil {
+		return PublicURLView{PublicURL: ic.PublicURL, Source: "ui", TLSPin: ic.TLSPin}
+	}
+	return PublicURLView{}
+}
+
+func (s *Server) handleGetPublicURL(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.publicURLView(r.Context()))
+}
+
+func (s *Server) handleSetPublicURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PublicURL string `json:"public_url"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if s.install != nil {
+		writeError(w, http.StatusConflict, "the public URL is set by NETCRAWL_PUBLIC_URL / --public-url on the server")
+		return
+	}
+	u := strings.TrimRight(strings.TrimSpace(req.PublicURL), "/")
+	ic := s.uiInstallConfig(u)
+	if err := ic.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.st.SetSetting(r.Context(), SettingPublicURL, u, s.now()); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	_ = s.st.Audit(r.Context(), adminFrom(r.Context()).Username, "settings.public_url", map[string]any{"public_url": u})
+	writeJSON(w, http.StatusOK, s.publicURLView(r.Context()))
 }
