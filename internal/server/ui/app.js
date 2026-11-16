@@ -4,6 +4,15 @@
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+// Theme: dark by default; the choice is remembered in this browser.
+function applyTheme(theme) {
+  if (theme === "light") document.documentElement.dataset.theme = "light";
+  else delete document.documentElement.dataset.theme;
+  const sw = document.getElementById("theme-switch");
+  if (sw) sw.setAttribute("aria-pressed", String(theme === "light"));
+}
+try { applyTheme(localStorage.getItem("netcrawl-theme")); } catch { /* storage blocked: stay dark */ }
+
 let networks = [];
 let currentTab = "overview";
 
@@ -727,6 +736,12 @@ async function renderAudit() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
+  $("#theme-switch").addEventListener("click", () => {
+    const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    applyTheme(theme);
+    try { localStorage.setItem("netcrawl-theme", theme); } catch { /* not remembered */ }
+  });
+  applyTheme(document.documentElement.dataset.theme || "dark");
   for (const b of $$("[data-goto]")) b.addEventListener("click", () => selectTab(b.dataset.goto));
   $("#ov-discover").addEventListener("click", (ev) => scanAll("discovery", ev.currentTarget));
   $("#ov-portscan").addEventListener("click", (ev) => scanAll("ports", ev.currentTarget));

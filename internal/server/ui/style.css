@@ -1,4 +1,4 @@
-/* NetCrawl admin UI. Dark by default, light when the system asks for it.
+/* NetCrawl admin UI. Dark by default; the theme switch sets data-theme="light".
    No inline styles and no external resources (strict CSP). */
 :root {
   --bg: #0a1120; --side: #0d1528; --card: #0f182c; --field: #0a1120; --hover: #14203a;
@@ -15,27 +15,31 @@
   --radius: 12px;
   color-scheme: dark;
 }
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f4f6fa; --side: #ffffff; --card: #ffffff; --field: #f8fafc; --hover: #eef3fb;
-    --line: #e2e8f0; --line-strong: #cbd5e1;
-    --fg: #0f172a; --fg-soft: #334155; --muted: #5b6577;
-    --accent: #2457c5; --link: #1d4ed8; --nav-active: #e0eaff;
-    --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
-    --ok-bg: #dcfce7; --ok-fg: #14532d; --warn-bg: #fef3c7; --warn-fg: #78350f;
-    --bad-bg: #fee2e2; --bad-fg: #7f1d1d; --info-bg: #dbeafe; --info-fg: #1e3a8a;
-    --k-blue: #eef4ff; --k-blue-line: #c7d7fe; --k-blue-icon: #2457c5;
-    --k-violet: #f1f0ff; --k-violet-line: #d4d1fb; --k-violet-icon: #4f46e5;
-    --k-amber: #fff7e8; --k-amber-line: #f7d9a6; --k-amber-icon: #b45309;
-    --k-red: #fff1f1; --k-red-line: #f6c5c5; --k-red-icon: #b91c1c;
-    color-scheme: light;
-  }
+/* Light theme, chosen with the switch in the sidebar. */
+:root[data-theme="light"] {
+  --bg: #f4f6fa; --side: #ffffff; --card: #ffffff; --field: #f8fafc; --hover: #eef3fb;
+  --line: #e2e8f0; --line-strong: #cbd5e1;
+  --fg: #0f172a; --fg-soft: #334155; --muted: #5b6577;
+  --accent: #2457c5; --link: #1d4ed8; --nav-active: #e0eaff;
+  --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+  --ok-bg: #dcfce7; --ok-fg: #14532d; --warn-bg: #fef3c7; --warn-fg: #78350f;
+  --bad-bg: #fee2e2; --bad-fg: #7f1d1d; --info-bg: #dbeafe; --info-fg: #1e3a8a;
+  --k-blue: #eef4ff; --k-blue-line: #c7d7fe; --k-blue-icon: #2457c5;
+  --k-violet: #f1f0ff; --k-violet-line: #d4d1fb; --k-violet-icon: #4f46e5;
+  --k-amber: #fff7e8; --k-amber-line: #f7d9a6; --k-amber-icon: #b45309;
+  --k-red: #fff1f1; --k-red-line: #f6c5c5; --k-red-icon: #b91c1c;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; min-height: 100vh; font: 14px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
-body.signed-in { display: flex; }
+body.signed-in { display: flex; max-width: 1760px; margin: 0 auto; }
+/* Very wide screens (e.g. 49"): the app stays at 1760 px, centered. */
+@media (min-width: 1761px) {
+  body.signed-in { border-right: 1px solid var(--line); }
+  #sidebar { border-left: 1px solid var(--line); }
+}
 main { flex: 1; min-width: 0; padding: 24px 28px 40px; }
 h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 h2 { font-size: 17px; font-weight: 600; margin: 0 0 12px; }
@@ -53,6 +57,12 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .tab.active { background: var(--nav-active); color: var(--fg); font-weight: 600; }
 .badge { margin-left: auto; min-width: 20px; padding: 1px 8px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 600; text-align: center; }
 .side-foot { margin-top: auto; padding: 16px 10px 4px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.theme-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 0; padding: 4px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--field); color: var(--muted); font-weight: 500; }
+.theme-switch .icon { width: 26px; height: 26px; padding: 5px; border-radius: 50%; }
+.theme-switch .moon { background: var(--nav-active); color: var(--fg); }
+:root[data-theme="light"] .theme-switch .moon { background: transparent; color: var(--muted); }
+:root[data-theme="light"] .theme-switch .sun { background: var(--nav-active); color: var(--fg); }
+.theme-switch:hover { color: var(--fg); }
 
 /* ---- page header ---- */
 .page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 20px; }
