@@ -7,7 +7,7 @@ Umsetzung der Abnahme „Crawler-/Mock-Prototyp (Loopback-only)“. Die Testfäl
 ```bash
 make e2e                                   # In-Memory-Datenhaltung
 NETCRAWL_TEST_DATABASE_URL='postgres://…/netcrawl_test?sslmode=disable' make e2e   # mit PostgreSQL (Datenbank wird geleert!)
-make e2e VERSION=v0.2.0                    # Versionskennung im Beleg
+make e2e VERSION=0.6.0+abc1234             # Versionskennung im Beleg (Standard: internal/version/VERSION)
 ```
 
 Der Beleg landet in `e2e-report.md`. Die CI erzeugt ihn bei jedem Push gegen PostgreSQL und stellt ihn als Artefakt `e2e-report` bereit.

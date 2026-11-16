@@ -1,8 +1,11 @@
 BINS=netcrawler result2csv result2md netcrawl-server netcrawl-agent
-VERSION ?= dev
+# The version comes from internal/version/VERSION; VERSION=... overrides it
+# (e.g. a commit id in CI).
+VERSION ?=
 # Store and E2E tests share NETCRAWL_TEST_DATABASE_URL: run packages one at a time then.
 TESTFLAGS=-race $(if $(NETCRAWL_TEST_DATABASE_URL),-p 1,)
-LDFLAGS=-ldflags "-X netcrawler/internal/version.Version=$(VERSION)"
+VERSION_FLAG=$(if $(VERSION),-X netcrawler/internal/version.Version=$(VERSION),)
+LDFLAGS=-ldflags "$(VERSION_FLAG)"
 
 .PHONY: all build agents test vet fmt check e2e clean
 
@@ -39,8 +42,8 @@ e2e:
 # Agent binaries the server hands out to the installer (--agent-dir dist/agent).
 agents:
 	mkdir -p dist/agent
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X netcrawler/internal/version.Version=$(VERSION)" -o dist/agent/netcrawl-agent-linux-amd64 ./cmd/netcrawl-agent
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X netcrawler/internal/version.Version=$(VERSION)" -o dist/agent/netcrawl-agent-linux-arm64 ./cmd/netcrawl-agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w $(VERSION_FLAG)" -o dist/agent/netcrawl-agent-linux-amd64 ./cmd/netcrawl-agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w $(VERSION_FLAG)" -o dist/agent/netcrawl-agent-linux-arm64 ./cmd/netcrawl-agent
 
 clean:
 	rm -f $(BINS)

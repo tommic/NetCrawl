@@ -29,7 +29,7 @@ services:
       context: ../..
       target: server
       args:
-        VERSION: ${NETCRAWL_VERSION:-dev}
+        VERSION: ${NETCRAWL_VERSION:-}
     network_mode: host
     depends_on:
       db:
@@ -55,7 +55,7 @@ services:
       context: ../..
       target: agent
       args:
-        VERSION: ${NETCRAWL_VERSION:-dev}
+        VERSION: ${NETCRAWL_VERSION:-}
     network_mode: host
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
