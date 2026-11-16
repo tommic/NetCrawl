@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"netcrawler/internal/store"
+	"netcrawler/internal/version"
 )
 
 // SessionCookie is the admin session cookie name.
@@ -159,7 +160,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name: SessionCookie, Value: token, Path: "/", Expires: expires,
 		HttpOnly: true, Secure: s.secure, SameSite: s.sameSite(),
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC(), "installer": s.installConfig(r.Context()) != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"username": a.Username, "expires_at": expires.UTC(), "installer": s.installConfig(r.Context()) != nil, "version": version.Version})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +172,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"username": adminFrom(r.Context()).Username, "installer": s.installConfig(r.Context()) != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"username": adminFrom(r.Context()).Username, "installer": s.installConfig(r.Context()) != nil, "version": version.Version})
 }
 
 // CrawlerView is the API representation of a crawler (without secret).

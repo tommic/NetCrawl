@@ -17,6 +17,8 @@ cd "$(dirname "$0")"
 DATA=./data
 ENVFILE=./.env
 export HOST_UID=$(id -u) HOST_GID=$(id -g)
+# Shown in the web UI; the git state of this checkout unless set.
+export NETCRAWL_VERSION=${NETCRAWL_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 
 compose() { docker compose --env-file "$ENVFILE" "$@"; }
 server() { compose run --rm -T server "$@"; }

@@ -94,6 +94,10 @@ function showLogin() {
   document.body.classList.remove("signed-in");
 }
 
+function showVersion(v) {
+  $("#version").textContent = v ? "Version " + v : "";
+}
+
 async function showApp(username) {
   $("#login-view").hidden = true;
   $("#app-view").hidden = false;
@@ -758,6 +762,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const me = await api("POST", "/api/v1/admin/login", { username: f.get("username"), password: f.get("password") });
       ev.target.reset();
       installer = !!me.installer;
+      showVersion(me.version);
       await showApp(me.username);
     } catch (e) {
       $("#login-error").textContent = e.status === 429 ? "Zu viele Fehlversuche, bitte später erneut versuchen." : "Benutzer oder Passwort falsch.";
@@ -903,6 +908,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     const me = await api("GET", "/api/v1/admin/me");
     installer = !!me.installer;
+    showVersion(me.version);
     await showApp(me.username);
   } catch {
     showLogin();
