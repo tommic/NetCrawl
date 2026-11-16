@@ -347,9 +347,15 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	if j.NetworkID != nil {
 		// The result is stored; an inventory error must not turn the
 		// accepted submission into a failure for the crawler.
-		if err := s.applyInventory(ctx, *j.NetworkID, inventory.ApplyResult(j.Kind, j.ID, res, now)); err != nil {
+		events, err := s.applyInventory(ctx, *j.NetworkID, inventory.ApplyResult(j.Kind, j.ID, res, now))
+		if err != nil {
 			s.log.Error("inventory update failed", "network", *j.NetworkID, "job", jobID, "err", err)
 			_ = s.st.Audit(ctx, "system", "inventory.error", map[string]any{"network_id": *j.NetworkID, "job_id": jobID, "error": err.Error()})
+		} else if ips := newHostIPs(events); j.Kind == protocol.JobKindDiscovery && len(ips) > 0 {
+			if err := s.scanNewHosts(ctx, *j.NetworkID, ips); err != nil {
+				s.log.Error("port scan for new hosts", "network", *j.NetworkID, "err", err)
+				_ = s.st.Audit(ctx, "system", "scheduler.error", map[string]any{"network_id": *j.NetworkID, "error": err.Error()})
+			}
 		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "accepted", "job_id": jobID})

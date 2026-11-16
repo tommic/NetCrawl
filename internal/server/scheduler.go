@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"netcrawler/internal/eventlog"
+	"netcrawler/internal/inventory"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store"
 )
@@ -17,8 +18,9 @@ const (
 	scheduledActor  = "scheduler"
 )
 
-// applyInventory runs an inventory update and writes its events to the log.
-func (s *Server) applyInventory(ctx context.Context, networkID int64, fn store.InventoryUpdate) error {
+// applyInventory runs an inventory update, writes its events to the log
+// and returns them.
+func (s *Server) applyInventory(ctx context.Context, networkID int64, fn store.InventoryUpdate) ([]store.Event, error) {
 	var events []store.Event
 	var name string
 	err := s.st.UpdateInventory(ctx, networkID, func(n *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
@@ -27,7 +29,7 @@ func (s *Server) applyInventory(ctx context.Context, networkID int64, fn store.I
 		return changed, ev, err
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	entries := make([]eventlog.Entry, 0, len(events))
 	for _, e := range events {
@@ -41,6 +43,45 @@ func (s *Server) applyInventory(ctx context.Context, networkID int64, fn store.I
 	}
 	if err := s.events.Write(entries); err != nil {
 		s.log.Error("event log", "err", err)
+	}
+	return events, nil
+}
+
+// newHostIPs returns the addresses of hosts that a discovery found for the
+// first time after the network's baseline.
+func newHostIPs(events []store.Event) []string {
+	var ips []string
+	for _, e := range events {
+		if e.Type == inventory.TypeHostNew && !e.Baseline {
+			ips = append(ips, e.IP)
+		}
+	}
+	return ips
+}
+
+// scanNewHosts creates a port scan job for hosts that just appeared, so
+// their ports are known right away instead of after the next regular
+// port scan. It does not move the network's port scan schedule.
+func (s *Server) scanNewHosts(ctx context.Context, networkID int64, ips []string) error {
+	if len(ips) == 0 {
+		return nil
+	}
+	n, err := s.st.Network(ctx, networkID)
+	if err != nil {
+		return err
+	}
+	if !n.Enabled {
+		return nil
+	}
+	if c, err := s.st.Crawler(ctx, n.CrawlerID); err != nil || !c.Enabled {
+		return err
+	}
+	targets := make([]string, len(ips))
+	for i, ip := range ips {
+		targets[i] = ip + "/32"
+	}
+	if _, err := s.networkJob(ctx, n, protocol.JobKindPorts, targets, n.ScanPorts, portscanJobTTL, s.now()); err != nil {
+		return fmt.Errorf("port scan job for new hosts: %w", err)
 	}
 	return nil
 }
