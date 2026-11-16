@@ -152,6 +152,31 @@ func TestNetworkSchedulingAndInventory(t *testing.T) {
 		t.Errorf("important unknown host: %d", resp.StatusCode)
 	}
 
+	// Custom name via API: trimmed, shown next to the discovered hostname.
+	if resp := f.do("POST", "/api/v1/admin/hosts/name", "application/json", `{"network_id":1,"ip":"10.0.0.5","name":"  Mein NAS "}`, c); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("set name: %d", resp.StatusCode)
+	}
+	if hosts := decode[[]HostView](t, f.do("GET", "/api/v1/admin/hosts", "", "", c)); hosts[0].CustomName != "Mein NAS" || hosts[0].Hostname != "nas" {
+		t.Errorf("host after rename = %+v", hosts[0])
+	}
+	for name, body := range map[string]string{
+		"too long": `{"network_id":1,"ip":"10.0.0.5","name":"` + strings.Repeat("x", 65) + `"}`,
+		"control":  `{"network_id":1,"ip":"10.0.0.5","name":"a\nb"}`,
+	} {
+		if resp := f.do("POST", "/api/v1/admin/hosts/name", "application/json", body, c); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("name %s: %d, want 400", name, resp.StatusCode)
+		}
+	}
+	if resp := f.do("POST", "/api/v1/admin/hosts/name", "application/json", `{"network_id":1,"ip":"10.0.0.99","name":"x"}`, c); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("name unknown host: %d", resp.StatusCode)
+	}
+	if resp := f.do("POST", "/api/v1/admin/hosts/name", "application/json", `{"network_id":1,"ip":"10.0.0.5","name":""}`, c); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("clear name: %d", resp.StatusCode)
+	}
+	if hosts := decode[[]HostView](t, f.do("GET", "/api/v1/admin/hosts", "", "", c)); hosts[0].CustomName != "" {
+		t.Errorf("name not cleared: %+v", hosts[0])
+	}
+
 	// Events: baseline hidden by default, visible with baseline=1.
 	if ev := decode[[]EventView](t, f.do("GET", "/api/v1/admin/events", "", "", c)); len(ev) != 0 {
 		t.Errorf("default events = %+v", ev)

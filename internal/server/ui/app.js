@@ -171,6 +171,24 @@ async function renderEvents() {
   }
 }
 
+// hostName renders a host's name: the custom name (marked, with the
+// discovered hostname as tooltip) or the discovered hostname.
+function hostName(h) {
+  if (h.custom_name) {
+    const span = el("span", h.custom_name, "custom-name");
+    span.title = "Eigener Name – gefundener Hostname: " + (h.hostname || "keiner");
+    return span;
+  }
+  return document.createTextNode(h.hostname || "–");
+}
+
+function hostStatus(h) {
+  return h.online ? ["online", "status-completed"]
+    : ["offline (" + (severityLabel[h.offline_level] || h.offline_level) + ")", "status-expired"];
+}
+
+let selectedHost = null; // { network_id, ip }
+
 async function renderHosts() {
   const nid = $("#host-network").value;
   const hosts = await api("GET", `/api/v1/admin/hosts?network_id=${nid}`);
@@ -178,11 +196,12 @@ async function renderHosts() {
   tbody.replaceChildren();
   for (const h of hosts) {
     const tr = document.createElement("tr");
+    tr.className = "clickable";
     cell(tr, networkName(h.network_id));
     cell(tr, h.ip, "mono");
-    cell(tr, h.hostname || "–");
-    if (h.online) cell(tr, "online", "status-completed");
-    else cell(tr, "offline (" + (severityLabel[h.offline_level] || h.offline_level) + ")", "status-expired");
+    cell(tr, "").appendChild(hostName(h));
+    const [status, cls] = hostStatus(h);
+    cell(tr, status, cls);
     cell(tr, h.ports_scanned_at ? (h.ports.map((p) => p.port).join(", ") || "keine") : "noch kein Portscan");
     cell(tr, fmt(h.first_seen));
     cell(tr, fmt(h.last_seen));
@@ -190,15 +209,141 @@ async function renderHosts() {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = h.important;
+    box.addEventListener("click", (ev) => ev.stopPropagation());
     box.addEventListener("change", async () => {
       try {
         await api("POST", "/api/v1/admin/hosts/important", { network_id: h.network_id, ip: h.ip, important: box.checked });
+        h.important = box.checked;
       } catch { box.checked = !box.checked; }
     });
     td.appendChild(box);
+    tr.addEventListener("click", () => {
+      selectedHost = { network_id: h.network_id, ip: h.ip };
+      for (const r of tbody.children) r.classList.remove("selected");
+      tr.classList.add("selected");
+      showHost(h);
+    });
+    if (selectedHost && selectedHost.network_id === h.network_id && selectedHost.ip === h.ip) tr.classList.add("selected");
     tbody.appendChild(tr);
   }
   if (!hosts.length) emptyRow(tbody, 8, "Noch keine Hosts – die erste Host-Erkennung läuft nach dem Anlegen eines Netzes.");
+  const sel = selectedHost && hosts.find((h) => h.network_id === selectedHost.network_id && h.ip === selectedHost.ip);
+  if (sel) {
+    // Do not throw away a name the user is typing (auto refresh).
+    const input = $("#host-name");
+    if (!input || (document.activeElement !== input && input.value === input.dataset.saved)) showHost(sel);
+  } else { selectedHost = null; $("#host-detail").hidden = true; }
+}
+
+async function showHost(h) {
+  const box = $("#host-detail");
+  box.hidden = false;
+  box.replaceChildren();
+
+  const head = el("div", undefined, "title-row");
+  const title = el("h3", (h.custom_name || h.hostname || h.ip) + (h.custom_name || h.hostname ? " – " + h.ip : ""));
+  const close = el("button", "Schließen", "ghost small");
+  close.type = "button";
+  close.addEventListener("click", () => {
+    selectedHost = null;
+    box.hidden = true;
+    for (const r of $("#hosts").children) r.classList.remove("selected");
+  });
+  head.append(title, close);
+  box.appendChild(head);
+
+  const facts = el("dl", undefined, "facts");
+  const fact = (k, v, cls) => { facts.append(el("dt", k), el("dd", v, cls)); };
+  const [status, cls] = hostStatus(h);
+  fact("Netz", networkName(h.network_id));
+  fact("IP-Adresse", h.ip, "mono");
+  fact("Gefundener Hostname", h.hostname || "keiner (kein Reverse-DNS-Eintrag)");
+  fact("Eigener Name", h.custom_name || "–");
+  fact("Status", status, cls);
+  fact("Zuerst gesehen", fmt(h.first_seen));
+  fact("Zuletzt gesehen", fmt(h.last_seen));
+  fact("Letzter Portscan", h.ports_scanned_at ? fmt(h.ports_scanned_at) : "noch keiner");
+  fact("Wichtig", h.important ? "ja" : "nein");
+  box.appendChild(facts);
+
+  // Custom name.
+  const form = document.createElement("form");
+  form.className = "row";
+  const label = el("label", "Eigener Name");
+  const input = document.createElement("input");
+  input.id = "host-name";
+  input.maxLength = 64;
+  input.value = h.custom_name;
+  input.dataset.saved = h.custom_name;
+  input.placeholder = h.hostname || "z. B. Drucker Büro";
+  label.appendChild(input);
+  const save = el("button", "Speichern");
+  save.type = "submit";
+  form.append(label, save);
+  if (h.custom_name) {
+    const reset = el("button", "Gefundenen Namen verwenden", "ghost");
+    reset.type = "button";
+    reset.addEventListener("click", () => setName(""));
+    form.appendChild(reset);
+  }
+  const msg = el("p", undefined, "hint");
+  msg.hidden = true;
+  async function setName(name) {
+    try {
+      await api("POST", "/api/v1/admin/hosts/name", { network_id: h.network_id, ip: h.ip, name });
+      await renderHosts();
+    } catch (e) {
+      msg.className = "error";
+      msg.textContent = "Fehler: " + e.message;
+      msg.hidden = false;
+    }
+  }
+  form.addEventListener("submit", (ev) => { ev.preventDefault(); setName(input.value); });
+  box.append(form, msg);
+
+  // Open ports.
+  box.appendChild(el("h3", "Offene Ports"));
+  if (!h.ports_scanned_at) box.appendChild(el("p", "Noch kein Portscan für diesen Host.", "hint"));
+  else if (!h.ports.length) box.appendChild(el("p", "Keine offenen Ports gefunden.", "hint"));
+  else {
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    for (const t of ["Port", "Offen seit", "Zuletzt bestätigt"]) hr.appendChild(el("th", t));
+    thead.appendChild(hr);
+    const tbody = document.createElement("tbody");
+    for (const p of h.ports) {
+      const tr = document.createElement("tr");
+      cell(tr, String(p.port), "mono");
+      cell(tr, fmt(p.first_seen));
+      cell(tr, fmt(p.last_seen));
+      tbody.appendChild(tr);
+    }
+    table.append(thead, tbody);
+    box.appendChild(table);
+  }
+
+  // Events of this host.
+  box.appendChild(el("h3", "Ereignisse"));
+  const evBox = el("div");
+  box.appendChild(evBox);
+  let events;
+  try {
+    events = await api("GET", `/api/v1/admin/events?limit=20&baseline=1&network_id=${h.network_id}&ip=${encodeURIComponent(h.ip)}`);
+  } catch (e) { evBox.appendChild(el("p", "Fehler: " + e.message, "error")); return; }
+  if (!events.length) { evBox.appendChild(el("p", "Keine Ereignisse.", "hint")); return; }
+  const table = document.createElement("table");
+  const tbody = document.createElement("tbody");
+  for (const e of events) {
+    const tr = document.createElement("tr");
+    cell(tr, fmt(e.at));
+    cell(tr, "").appendChild(el("span", severityLabel[e.severity] || e.severity, "sev sev-" + e.severity));
+    const m = cell(tr, e.message);
+    if (e.baseline) m.appendChild(el("span", " Initialbestand", "hint"));
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  evBox.appendChild(table);
 }
 
 async function renderNetworks() {

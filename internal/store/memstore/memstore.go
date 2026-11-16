@@ -521,6 +521,7 @@ func (s *Store) UpdateInventory(_ context.Context, networkID int64, fn store.Inv
 		}
 		c := cloneHost(*h)
 		c.NetworkID, c.IP = networkID, ip
+		c.CustomName = s.hosts[networkID][ip].CustomName // only SetHostCustomName changes it
 		sort.Slice(c.Ports, func(i, j int) bool { return c.Ports[i].Port < c.Ports[j].Port })
 		s.hosts[networkID][ip] = c
 	}
@@ -568,6 +569,18 @@ func (s *Store) SetHostImportant(_ context.Context, networkID int64, ip string, 
 		return store.ErrNotFound
 	}
 	h.Important = important
+	s.hosts[networkID][ip] = h
+	return nil
+}
+
+func (s *Store) SetHostCustomName(_ context.Context, networkID int64, ip, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h, ok := s.hosts[networkID][ip]
+	if !ok {
+		return store.ErrNotFound
+	}
+	h.CustomName = name
 	s.hosts[networkID][ip] = h
 	return nil
 }

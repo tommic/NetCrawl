@@ -476,6 +476,22 @@ func testInventory(t *testing.T, s store.Store) {
 		t.Error("important flag not stored")
 	}
 
+	// Custom names survive inventory updates of the same host.
+	mustNoErr(t, s.SetHostCustomName(ctx, n.ID, "127.0.0.10", "Drucker Büro"))
+	wantErr(t, s.SetHostCustomName(ctx, n.ID, "127.0.0.99", "x"), store.ErrNotFound)
+	mustNoErr(t, s.UpdateInventory(ctx, n.ID, func(net *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
+		hosts["127.0.0.10"].Hostname = "printer.lan"
+		hosts["127.0.0.10"].CustomName = "" // updates must not clear it
+		return []string{"127.0.0.10"}, nil, nil
+	}))
+	if hosts, _ := s.Hosts(ctx, n.ID); hosts[1].CustomName != "Drucker Büro" || hosts[1].Hostname != "printer.lan" {
+		t.Errorf("custom name after update = %q / %q", hosts[1].CustomName, hosts[1].Hostname)
+	}
+	mustNoErr(t, s.SetHostCustomName(ctx, n.ID, "127.0.0.10", ""))
+	if hosts, _ := s.Hosts(ctx, n.ID); hosts[1].CustomName != "" {
+		t.Error("custom name not removed")
+	}
+
 	mustNoErr(t, s.UpdateInventory(ctx, m.ID, func(net *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
 		hosts["127.0.0.1"] = &store.Host{FirstSeen: t0, LastSeen: t0}
 		return []string{"127.0.0.1"}, []store.Event{{At: t0.Add(time.Hour), IP: "127.0.0.1", Type: "host.new", Severity: store.SeverityInfo, Message: "neu"}}, nil
