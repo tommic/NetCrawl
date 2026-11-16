@@ -5,7 +5,16 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 let networks = [];
-let currentTab = "events";
+let currentTab = "overview";
+
+const pages = {
+  overview: ["Übersicht", "Auf einen Blick: Was hat sich in Ihrem Netz verändert?"],
+  events: ["Ereignisse", "Änderungen im Netz, neueste zuerst."],
+  hosts: ["Inventar", "Alle gefundenen Hosts. Zeile anklicken für Details und einen eigenen Namen."],
+  networks: ["Netze & Crawler", "Welche Netze wie oft geprüft werden und welche Crawler das übernehmen."],
+  settings: ["Benachrichtigungen", "Änderungen per Discord melden."],
+  admin: ["Administration", "Einzelne Jobs, Job-Verlauf und Audit-Log."],
+};
 let installer = false;
 
 async function api(method, path, body) {
@@ -72,26 +81,29 @@ function message(sel, text, isError) {
 function showLogin() {
   $("#login-view").hidden = false;
   $("#app-view").hidden = true;
-  $("#tabs").hidden = true;
-  $("#who").hidden = true;
-  $("#logout").hidden = true;
+  $("#sidebar").hidden = true;
+  document.body.classList.remove("signed-in");
 }
 
 async function showApp(username) {
   $("#login-view").hidden = true;
   $("#app-view").hidden = false;
-  $("#tabs").hidden = false;
+  $("#sidebar").hidden = false;
+  document.body.classList.add("signed-in");
   $("#who").textContent = username;
-  $("#who").hidden = false;
-  $("#logout").hidden = false;
   await refresh();
 }
 
 function selectTab(tab) {
   if (tab === "settings" && currentTab !== "settings") renderNotify(true);
   currentTab = tab;
-  for (const b of $$(".tab")) b.classList.toggle("active", b.dataset.tab === tab);
+  for (const b of $$(".tab")) {
+    b.classList.toggle("active", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  }
   for (const p of $$(".panel")) p.hidden = p.dataset.panel !== tab;
+  $("#page-title").textContent = pages[tab][0];
+  $("#page-sub").textContent = pages[tab][1];
   refresh();
 }
 
@@ -104,13 +116,13 @@ async function refresh() {
     const crawlers = await api("GET", "/api/v1/admin/crawlers");
     fillCrawlerSelects(crawlers);
     await updateBadge();
+    renderLastDiscovery();
     switch (currentTab) {
+      case "overview": return renderOverview(crawlers);
       case "events": return renderEvents();
       case "hosts": return renderHosts();
-      case "networks": return renderNetworks();
-      case "jobs": return renderJobs();
-      case "crawlers": renderCrawlers(crawlers); return renderPublicURL();
-      case "audit": return renderAudit();
+      case "networks": renderCrawlers(crawlers); await renderNetworks(); return renderPublicURL();
+      case "admin": await renderJobs(); return renderAudit();
       case "settings": return renderNotify(false);
     }
   } catch (e) {
@@ -147,6 +159,103 @@ async function updateBadge() {
 }
 
 const severityLabel = { info: "Info", warning: "Warnung", critical: "Kritisch" };
+
+function ago(ts) {
+  const min = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (min < 1) return "gerade eben";
+  if (min < 60) return `vor ${min} Min.`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `vor ${h} Std.`;
+  return `vor ${Math.round(h / 24)} Tagen`;
+}
+
+function renderLastDiscovery() {
+  const times = networks.map((n) => n.discovery_done_at).filter(Boolean).map((t) => new Date(t).getTime());
+  const box = $("#last-discovery");
+  box.replaceChildren();
+  if (!times.length) return;
+  box.append(el("span", undefined, "dot dot-ok"), document.createTextNode(" Letzte Erkennung: " + ago(Math.max(...times))));
+}
+
+function sevPill(sev) {
+  return el("span", severityLabel[sev] || sev, "sev sev-" + sev);
+}
+
+async function renderOverview(crawlers) {
+  const [hosts, events] = await Promise.all([
+    api("GET", "/api/v1/admin/hosts?network_id=0"),
+    api("GET", "/api/v1/admin/events?limit=200"),
+  ]);
+  const since = Date.now() - 24 * 3600 * 1000;
+  const recent = events.filter((e) => new Date(e.at).getTime() > since);
+  const online = hosts.filter((h) => h.online).length;
+  const offInfo = hosts.filter((h) => !h.online && h.offline_level === "info").length;
+  const offWarn = hosts.length - online - offInfo;
+  const active = crawlers.filter((c) => c.enabled);
+  const warnings = recent.filter((e) => e.severity !== "info").length;
+
+  $("#kpi-online").textContent = String(online);
+  $("#kpi-new").textContent = String(recent.filter((e) => e.type === "host.new").length);
+  $("#kpi-warn").textContent = String(warnings);
+  $("#kpi-crawlers").textContent = String(active.filter((c) => !crawlerOnline(c)).length);
+
+  const pill = $("#ov-warn");
+  pill.textContent = `${warnings} Warnung${warnings === 1 ? "" : "en"} (24 h)`;
+  pill.hidden = warnings === 0;
+
+  const tbody = $("#ov-events");
+  tbody.replaceChildren();
+  for (const e of events.slice(0, 6)) {
+    const tr = document.createElement("tr");
+    cell(tr, "").appendChild(sevPill(e.severity));
+    cell(tr, fmt(e.at), "muted nowrap");
+    const td = cell(tr, "");
+    td.append(el("div", e.message, "strong"), el("div", networkName(e.network_id), "muted small"));
+    tbody.appendChild(tr);
+  }
+  if (!events.length) emptyRow(tbody, 3, networks.length ? "Noch keine Änderungen." : "Noch kein Netz angelegt – unter „Netze & Crawler“ ein Netz anlegen.");
+
+  // Donut: share of hosts online.
+  const pct = hosts.length ? Math.round((online / hosts.length) * 100) : 0;
+  const c = 2 * Math.PI * 48;
+  $("#donut-arc").setAttribute("stroke-dasharray", `${(c * pct) / 100} ${c}`);
+  $("#donut-pct").textContent = hosts.length ? pct + " %" : "–";
+  $("#donut").setAttribute("aria-label", hosts.length ? `${pct} Prozent der Hosts online` : "Noch keine Hosts");
+  $("#lg-online").textContent = String(online);
+  $("#lg-info").textContent = String(offInfo);
+  $("#lg-warn").textContent = String(offWarn);
+  const enabledNets = networks.filter((n) => n.enabled);
+  $("#ov-discover").disabled = !enabledNets.length;
+  $("#ov-portscan").disabled = !enabledNets.some((n) => n.discovery_done_at);
+
+  const list = $("#ov-crawlers");
+  list.replaceChildren();
+  for (const cr of crawlers) {
+    const li = document.createElement("li");
+    const [label, cls] = crawlerState(cr);
+    const nets = networks.filter((n) => n.crawler_id === cr.id).map((n) => n.name).join(", ");
+    li.append(el("span", undefined, "dot " + (cls === "status-completed" ? "dot-ok" : cls === "status-expired" ? "dot-bad" : "dot-warn")),
+      el("span", cr.id, "strong"), el("span", nets ? "· " + nets : "", "muted"), el("span", label, "push " + cls));
+    list.appendChild(li);
+  }
+  if (!crawlers.length) list.appendChild(el("li", "Noch kein Crawler angelegt.", "hint"));
+}
+
+async function scanAll(kind, btn) {
+  const targets = networks.filter((n) => n.enabled && (kind === "discovery" || n.discovery_done_at));
+  const msg = $("#ov-scan-msg");
+  btn.disabled = true;
+  try {
+    await Promise.all(targets.map((n) => api("POST", `/api/v1/admin/networks/${n.id}/scan`, { kind })));
+    msg.className = "hint";
+    msg.textContent = `${kind === "discovery" ? "Erkennung" : "Portscan"} für ${targets.length} Netz${targets.length === 1 ? "" : "e"} geplant. Die Crawler holen die Jobs beim nächsten Abfragen ab.`;
+  } catch (e) {
+    msg.className = "error";
+    msg.textContent = "Nicht möglich: " + e.message;
+  }
+  msg.hidden = false;
+  btn.disabled = false;
+}
 
 async function renderEvents() {
   const nid = $("#ev-network").value;
@@ -201,7 +310,7 @@ async function renderHosts() {
     cell(tr, h.ip, "mono");
     cell(tr, "").appendChild(hostName(h));
     const [status, cls] = hostStatus(h);
-    cell(tr, status, cls);
+    cell(tr, "").appendChild(el("span", status, "pill " + cls));
     cell(tr, h.ports_scanned_at ? (h.ports.map((p) => p.port).join(", ") || "keine") : "noch kein Portscan");
     cell(tr, fmt(h.first_seen));
     cell(tr, fmt(h.last_seen));
@@ -240,7 +349,7 @@ async function showHost(h) {
   box.hidden = false;
   box.replaceChildren();
 
-  const head = el("div", undefined, "title-row");
+  const head = el("div", undefined, "title-row detail-head");
   const title = el("h3", (h.custom_name || h.hostname || h.ip) + (h.custom_name || h.hostname ? " – " + h.ip : ""));
   const close = el("button", "Schließen", "ghost small");
   close.type = "button";
@@ -264,7 +373,12 @@ async function showHost(h) {
   fact("Zuletzt gesehen", fmt(h.last_seen));
   fact("Letzter Portscan", h.ports_scanned_at ? fmt(h.ports_scanned_at) : "noch keiner");
   fact("Wichtig", h.important ? "ja" : "nein");
-  box.appendChild(facts);
+  const left = el("div", undefined, "detail-col");
+  const right = el("div", undefined, "detail-col");
+  const cols = el("div", undefined, "detail-cols");
+  cols.append(left, right);
+  box.appendChild(cols);
+  left.appendChild(facts);
 
   // Custom name.
   const form = document.createElement("form");
@@ -299,12 +413,12 @@ async function showHost(h) {
     }
   }
   form.addEventListener("submit", (ev) => { ev.preventDefault(); setName(input.value); });
-  box.append(form, msg);
+  left.append(form, msg);
 
   // Open ports.
-  box.appendChild(el("h3", "Offene Ports"));
-  if (!h.ports_scanned_at) box.appendChild(el("p", "Noch kein Portscan für diesen Host.", "hint"));
-  else if (!h.ports.length) box.appendChild(el("p", "Keine offenen Ports gefunden.", "hint"));
+  right.appendChild(el("h3", "Offene Ports"));
+  if (!h.ports_scanned_at) right.appendChild(el("p", "Noch kein Portscan für diesen Host.", "hint"));
+  else if (!h.ports.length) right.appendChild(el("p", "Keine offenen Ports gefunden.", "hint"));
   else {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
@@ -320,13 +434,13 @@ async function showHost(h) {
       tbody.appendChild(tr);
     }
     table.append(thead, tbody);
-    box.appendChild(table);
+    right.appendChild(table);
   }
 
   // Events of this host.
-  box.appendChild(el("h3", "Ereignisse"));
+  right.appendChild(el("h3", "Ereignisse"));
   const evBox = el("div");
-  box.appendChild(evBox);
+  right.appendChild(evBox);
   let events;
   try {
     events = await api("GET", `/api/v1/admin/events?limit=20&baseline=1&network_id=${h.network_id}&ip=${encodeURIComponent(h.ip)}`);
@@ -442,16 +556,21 @@ function crawlerOnline(c) {
   return c.last_seen_at && Date.now() - new Date(c.last_seen_at).getTime() < 3 * 60 * 1000;
 }
 
+function crawlerState(c) {
+  if (!c.enabled) return ["deaktiviert", "status-expired"];
+  if (c.reinstall_required) return ["Neuinstallation nötig", "status-pending"];
+  if (crawlerOnline(c)) return ["online", "status-completed"];
+  return [c.last_seen_at ? "offline" : "noch nie verbunden", "status-expired"];
+}
+
 function renderCrawlers(crawlers) {
   const tbody = $("#crawlers");
   tbody.replaceChildren();
   for (const c of crawlers) {
     const tr = document.createElement("tr");
-    cell(tr, c.id);
-    if (!c.enabled) cell(tr, "deaktiviert", "status-expired");
-    else if (c.reinstall_required) cell(tr, "Neuinstallation nötig", "status-pending");
-    else if (crawlerOnline(c)) cell(tr, "online", "status-completed");
-    else cell(tr, c.last_seen_at ? "offline" : "noch nie verbunden", "status-pending");
+    cell(tr, c.id, "strong");
+    const [state, stateCls] = crawlerState(c);
+    cell(tr, "").appendChild(el("span", state, "pill " + stateCls));
     cell(tr, c.allow.join(", "), "mono");
     cell(tr, String(c.max_hosts));
     cell(tr, fmt(c.last_seen_at));
@@ -608,6 +727,9 @@ async function renderAudit() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
+  for (const b of $$("[data-goto]")) b.addEventListener("click", () => selectTab(b.dataset.goto));
+  $("#ov-discover").addEventListener("click", (ev) => scanAll("discovery", ev.currentTarget));
+  $("#ov-portscan").addEventListener("click", (ev) => scanAll("ports", ev.currentTarget));
   $("#ev-network").addEventListener("change", renderEvents);
   $("#ev-baseline").addEventListener("change", renderEvents);
   $("#host-network").addEventListener("change", renderHosts);
