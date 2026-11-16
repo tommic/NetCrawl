@@ -9,6 +9,11 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.6.1 – 2026-11-17
+
+- `deploy/.env.example` setzte `NETCRAWL_VERSION=dev` und überdeckte damit die echte Versionsnummer.
+  Wer `deploy/.env` daraus kopiert hat: die Zeile `NETCRAWL_VERSION=dev` dort entfernen.
+
 ## 0.6.0 – 2026-11-17
 
 - Neues Design der Weboberfläche: Menü links (auf dem Handy oben), neue Seite **Übersicht** mit Kennzahlen,
