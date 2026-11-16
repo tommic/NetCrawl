@@ -5,7 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"netcrawler/internal/store"
 )
@@ -17,6 +20,7 @@ func (s *Server) registerInventoryRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/admin/networks/{id}/scan", s.admin(s.handleScanNow))
 	mux.Handle("GET /api/v1/admin/hosts", s.admin(s.handleListHosts))
 	mux.Handle("POST /api/v1/admin/hosts/important", s.admin(s.handleSetImportant))
+	mux.Handle("POST /api/v1/admin/hosts/name", s.admin(s.handleSetHostName))
 	mux.Handle("GET /api/v1/admin/events", s.admin(s.handleListEvents))
 }
 
@@ -161,6 +165,7 @@ type HostView struct {
 	NetworkID      int64      `json:"network_id"`
 	IP             string     `json:"ip"`
 	Hostname       string     `json:"hostname"`
+	CustomName     string     `json:"custom_name"`
 	FirstSeen      time.Time  `json:"first_seen"`
 	LastSeen       time.Time  `json:"last_seen"`
 	Online         bool       `json:"online"`
@@ -187,7 +192,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	out := make([]HostView, 0, len(hosts))
 	for _, h := range hosts {
 		v := HostView{
-			NetworkID: h.NetworkID, IP: h.IP, Hostname: h.Hostname, FirstSeen: h.FirstSeen, LastSeen: h.LastSeen,
+			NetworkID: h.NetworkID, IP: h.IP, Hostname: h.Hostname, CustomName: h.CustomName, FirstSeen: h.FirstSeen, LastSeen: h.LastSeen,
 			Online: h.OfflineLevel == "", OfflineLevel: h.OfflineLevel, Important: h.Important,
 			PortsScannedAt: h.PortsScannedAt, Ports: []PortView{},
 		}
@@ -219,6 +224,53 @@ func (s *Server) handleSetImportant(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.st.Audit(r.Context(), adminFrom(r.Context()).Username, "host.important", map[string]any{
 		"network_id": req.NetworkID, "ip": req.IP, "important": req.Important,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// maxCustomNameLen is the longest custom host name (in characters).
+const maxCustomNameLen = 64
+
+// cleanCustomName trims a custom host name and rejects names that are too
+// long or contain control characters.
+func cleanCustomName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if utf8.RuneCountInString(name) > maxCustomNameLen {
+		return "", invalid("name is longer than %d characters", maxCustomNameLen)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return "", invalid("name must not contain control characters")
+		}
+	}
+	return name, nil
+}
+
+func (s *Server) handleSetHostName(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NetworkID int64  `json:"network_id"`
+		IP        string `json:"ip"`
+		Name      string `json:"name"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	name, err := cleanCustomName(req.Name)
+	if err != nil {
+		s.serviceError(w, err)
+		return
+	}
+	err = s.st.SetHostCustomName(r.Context(), req.NetworkID, req.IP, name)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	_ = s.st.Audit(r.Context(), adminFrom(r.Context()).Username, "host.name", map[string]any{
+		"network_id": req.NetworkID, "ip": req.IP, "name": name,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }

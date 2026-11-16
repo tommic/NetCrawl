@@ -58,9 +58,11 @@
           <select id="host-network"><option value="0">Alle Netze</option></select>
         </div>
         <table>
-          <thead><tr><th>Netz</th><th>IP</th><th>Hostname</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte lösen nach der Warnschwelle eine kritische Meldung aus">Wichtig</th></tr></thead>
+          <thead><tr><th>Netz</th><th>IP</th><th>Name</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte lösen nach der Warnschwelle eine kritische Meldung aus">Wichtig</th></tr></thead>
           <tbody id="hosts"></tbody>
         </table>
+        <p class="hint">Host anklicken für Details und einen eigenen Namen. <span class="custom-name">Kursiv</span> = eigener Name (Maus darüber zeigt den gefundenen Hostnamen).</p>
+        <div id="host-detail" hidden></div>
       </div>
     </div>
 

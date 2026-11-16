@@ -125,7 +125,7 @@ type querier interface {
 // loadHosts reads hosts (with ports) of one network, or all if networkID
 // is 0.
 func loadHosts(ctx context.Context, q querier, networkID int64) ([]store.Host, error) {
-	rows, err := q.Query(ctx, `SELECT network_id, ip, hostname, first_seen, last_seen, important, offline_level,
+	rows, err := q.Query(ctx, `SELECT network_id, ip, hostname, custom_name, first_seen, last_seen, important, offline_level,
 		ports_scanned_at FROM hosts WHERE $1 = 0 OR network_id = $1`, networkID)
 	if err != nil {
 		return nil, err
@@ -138,7 +138,7 @@ func loadHosts(ctx context.Context, q querier, networkID int64) ([]store.Host, e
 	index := map[key]int{}
 	for rows.Next() {
 		var h store.Host
-		if err := rows.Scan(&h.NetworkID, &h.IP, &h.Hostname, &h.FirstSeen, &h.LastSeen, &h.Important,
+		if err := rows.Scan(&h.NetworkID, &h.IP, &h.Hostname, &h.CustomName, &h.FirstSeen, &h.LastSeen, &h.Important,
 			&h.OfflineLevel, &h.PortsScannedAt); err != nil {
 			rows.Close()
 			return nil, err
@@ -251,6 +251,14 @@ func (s *Store) UpdateInventory(ctx context.Context, networkID int64, fn store.I
 
 func (s *Store) SetHostImportant(ctx context.Context, networkID int64, ip string, important bool) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE hosts SET important = $3 WHERE network_id = $1 AND ip = $2`, networkID, ip, important)
+	if err == nil && tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) SetHostCustomName(ctx context.Context, networkID int64, ip, name string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE hosts SET custom_name = $3 WHERE network_id = $1 AND ip = $2`, networkID, ip, name)
 	if err == nil && tag.RowsAffected() == 0 {
 		return store.ErrNotFound
 	}

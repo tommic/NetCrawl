@@ -54,3 +54,11 @@ label.inline { display: flex; flex-direction: row; align-items: center; gap: 6px
 .notice { border-left: 4px solid var(--warn); background: var(--bg); padding: 10px 12px; border-radius: 6px; margin: 0 0 12px; font-size: 14px; }
 #edit-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 #edit-box h3 { font-size: 15px; margin: 0 0 8px; }
+.custom-name { font-style: italic; }
+.custom-name::before { content: "✎ "; font-style: normal; color: var(--muted); }
+tbody tr.selected { background: var(--bg); }
+#host-detail { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 12px; }
+#host-detail h3 { font-size: 15px; margin: 0; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 14px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }

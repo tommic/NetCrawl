@@ -144,9 +144,12 @@ type Host struct {
 	NetworkID int64
 	IP        string
 	Hostname  string
-	FirstSeen time.Time
-	LastSeen  time.Time
-	Important bool
+	// CustomName is a name set by an administrator; it is shown instead
+	// of the discovered hostname. Scan results never change it.
+	CustomName string
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	Important  bool
 	// OfflineLevel is "" while the host is considered present, otherwise
 	// the severity of the last "offline" event raised for it.
 	OfflineLevel string
@@ -300,6 +303,8 @@ type Store interface {
 	// network and numerically by IP.
 	Hosts(ctx context.Context, networkID int64) ([]Host, error)
 	SetHostImportant(ctx context.Context, networkID int64, ip string, important bool) error
+	// SetHostCustomName sets (or with "" removes) a host's custom name.
+	SetHostCustomName(ctx context.Context, networkID int64, ip, name string) error
 	ListEvents(ctx context.Context, f EventFilter) ([]Event, error)
 
 	// NotificationSettings returns the settings (zero value if none).
