@@ -29,7 +29,7 @@ services:
     build:
       context: ..
       args:
-        VERSION: ${NETCRAWL_VERSION:-dev}
+        VERSION: ${NETCRAWL_VERSION:-}
     restart: unless-stopped
     depends_on:
       db:

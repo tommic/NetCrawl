@@ -4,28 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NetCrawl</title>
+<meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/ui/style.css">
 <script src="/ui/app.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>NetCrawl</h1>
-  <nav id="tabs" hidden>
-    <button data-tab="events" class="tab active">Ereignisse <span id="badge" class="badge" hidden></span></button>
-    <button data-tab="hosts" class="tab">Inventar</button>
-    <button data-tab="networks" class="tab">Netze</button>
-    <button data-tab="jobs" class="tab">Jobs</button>
-    <button data-tab="crawlers" class="tab">Crawler</button>
-    <button data-tab="settings" class="tab">Benachrichtigungen</button>
-    <button data-tab="audit" class="tab">Audit</button>
+<aside id="sidebar" hidden>
+  <div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.6"/><circle cx="4" cy="6" r="1.8"/><circle cx="20" cy="6" r="1.8"/><circle cx="4" cy="18" r="1.8"/><circle cx="20" cy="18" r="1.8"/><path d="M5.6 7l4.3 3.4M18.4 7l-4.3 3.4M5.6 17l4.3-3.4M18.4 17l-4.3-3.4"/></svg><span>NetCrawl</span></div>
+  <nav id="tabs" aria-label="Hauptmenü">
+    <button data-tab="overview" class="tab active"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Übersicht</span></button>
+    <button data-tab="events" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span>Ereignisse</span> <span id="badge" class="badge" hidden></span></button>
+    <button data-tab="hosts" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><span>Inventar</span></button>
+    <button data-tab="networks" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/></svg><span>Netze &amp; Crawler</span></button>
+    <button data-tab="settings" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H8l-4 4z"/></svg><span>Benachrichtigungen</span></button>
+    <button data-tab="admin" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Administration</span></button>
   </nav>
-  <span id="who" hidden></span>
-  <button id="logout" class="ghost" hidden>Abmelden</button>
-</header>
+  <div class="side-foot">
+    <span class="dot dot-ok" aria-hidden="true"></span>
+    <div><div id="who" class="strong"></div><div id="version" class="muted small"></div><button id="logout" class="link">Abmelden</button></div>
+    <button id="theme-switch" class="theme-switch" type="button" aria-pressed="false" aria-label="Helles Design" title="Helles / dunkles Design">
+      <svg class="icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <svg class="icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</aside>
 
 <main>
   <section id="login-view" hidden>
     <form id="login-form" class="card narrow">
+      <div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.6"/><circle cx="4" cy="6" r="1.8"/><circle cx="20" cy="6" r="1.8"/><circle cx="4" cy="18" r="1.8"/><circle cx="20" cy="18" r="1.8"/><path d="M5.6 7l4.3 3.4M18.4 7l-4.3 3.4M5.6 17l4.3-3.4M18.4 17l-4.3-3.4"/></svg><span>NetCrawl</span></div>
       <h2>Anmelden</h2>
       <label>Benutzer <input name="username" autocomplete="username" value="admin" required></label>
       <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
@@ -35,10 +42,63 @@
   </section>
 
   <section id="app-view" hidden>
-    <div class="panel" data-panel="events">
+    <div class="page-head">
+      <div>
+        <h1 id="page-title">Übersicht</h1>
+        <p id="page-sub" class="sub">Auf einen Blick: Was hat sich in Ihrem Netz verändert?</p>
+      </div>
+      <div class="page-tools">
+        <span id="last-discovery" class="muted"></span>
+        <button id="refresh" class="icon-btn" aria-label="Aktualisieren" title="Aktualisieren"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="overview">
+      <div class="kpis">
+        <button class="kpi kpi-blue" data-goto="hosts"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg></span><span><span id="kpi-online" class="kpi-num">–</span><span class="kpi-label">Hosts online</span></span></button>
+        <button class="kpi kpi-violet" data-goto="events"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span><span><span id="kpi-new" class="kpi-num">–</span><span class="kpi-label">Neue Hosts (24 h)</span></span></button>
+        <button class="kpi kpi-amber" data-goto="events"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.01"/></svg></span><span><span id="kpi-warn" class="kpi-num">–</span><span class="kpi-label">Warnungen (24 h)</span></span></button>
+        <button class="kpi kpi-red" data-goto="networks"><span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span><span><span id="kpi-crawlers" class="kpi-num">–</span><span class="kpi-label">Crawler offline</span></span></button>
+      </div>
+      <div class="split">
+        <div class="card flush">
+          <div class="card-head"><h2>Neueste Ereignisse</h2><button class="link" data-goto="events">Alle anzeigen →</button><span id="ov-warn" class="pill pill-red" hidden></span></div>
+          <div class="scroll"><table class="list"><tbody id="ov-events"></tbody></table></div>
+        </div>
+        <div class="stack-col">
+          <div class="card">
+            <h2>Netzwerk-Status</h2>
+            <div class="donut-row">
+              <svg id="donut" class="donut" viewBox="0 0 120 120" role="img" aria-label="Anteil der Hosts online">
+                <circle class="donut-track" cx="60" cy="60" r="48"/>
+                <circle id="donut-arc" class="donut-arc" cx="60" cy="60" r="48" transform="rotate(-90 60 60)"/>
+                <text id="donut-pct" x="60" y="62" text-anchor="middle" class="donut-pct">–</text>
+                <text x="60" y="82" text-anchor="middle" class="donut-sub">online</text>
+              </svg>
+              <dl class="legend">
+                <dt><span class="dot dot-ok"></span>Online</dt><dd id="lg-online">–</dd>
+                <dt><span class="dot dot-muted"></span>Offline (Info)</dt><dd id="lg-info">–</dd>
+                <dt><span class="dot dot-warn"></span>Offline (Warnung)</dt><dd id="lg-warn">–</dd>
+              </dl>
+            </div>
+            <div class="btn-row">
+              <button id="ov-discover">Erkennung jetzt</button>
+              <button id="ov-portscan" class="ghost">Portscan jetzt</button>
+            </div>
+            <p id="ov-scan-msg" class="hint" hidden></p>
+          </div>
+          <div class="card">
+            <h2>Crawler</h2>
+            <ul id="ov-crawlers" class="status-list"></ul>
+            <button class="link" data-goto="networks">Netze &amp; Crawler →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" data-panel="events" hidden>
       <div class="card">
         <div class="title-row">
-          <h2>Ereignisse</h2>
+          <h2>Alle Ereignisse</h2>
           <div class="row">
             <label class="inline"><input type="checkbox" id="ev-baseline"> Initialbestand anzeigen</label>
             <select id="ev-network"><option value="0">Alle Netze</option></select>
@@ -54,7 +114,7 @@
     <div class="panel" data-panel="hosts" hidden>
       <div class="card">
         <div class="title-row">
-          <h2>Inventar</h2>
+          <h2>Hosts</h2>
           <select id="host-network"><option value="0">Alle Netze</option></select>
         </div>
         <table>
@@ -98,32 +158,7 @@
         </form>
         <p id="network-msg" hidden></p>
       </div>
-    </div>
-
-    <div class="panel" data-panel="jobs" hidden>
-      <div class="card">
-        <h2>Einzelnen Job anlegen</h2>
-        <form id="job-form" class="row">
-          <label>Crawler <select name="crawler_id" class="crawler-select" required></select></label>
-          <label>Ziel <input name="target" value="127.0.0.1/32" required></label>
-          <label>Ports <input name="ports" value="22,80,443,18081,18082" required></label>
-          <label>Gültig (Min.) <input name="ttl" type="number" min="1" max="60" value="5" required></label>
-          <button type="submit">Job anlegen</button>
-        </form>
-        <p id="job-msg" hidden></p>
-      </div>
-      <div class="card">
-        <div class="title-row"><h2>Jobs</h2><button id="refresh" class="ghost">Aktualisieren</button></div>
-        <table>
-          <thead><tr><th>Erstellt</th><th>Art</th><th>Crawler</th><th>Status</th><th>Ziele</th><th>Ports</th><th>Läuft ab</th></tr></thead>
-          <tbody id="jobs"></tbody>
-        </table>
-        <p class="hint">Zeile anklicken für das Ergebnis.</p>
-        <div id="job-detail" hidden></div>
-      </div>
-    </div>
-
-    <div class="panel" data-panel="crawlers" hidden>
+    
       <div class="card" id="public-url-card" hidden>
         <h2>Server-Adresse für Crawler</h2>
         <p class="hint" id="public-url-text"></p>
@@ -173,6 +208,39 @@
       </div>
     </div>
 
+    <div class="panel" data-panel="admin" hidden>
+      <div class="card">
+        <h2>Einzelnen Job anlegen</h2>
+        <form id="job-form" class="row">
+          <label>Crawler <select name="crawler_id" class="crawler-select" required></select></label>
+          <label>Ziel <input name="target" value="127.0.0.1/32" required></label>
+          <label>Ports <input name="ports" value="22,80,443,18081,18082" required></label>
+          <label>Gültig (Min.) <input name="ttl" type="number" min="1" max="60" value="5" required></label>
+          <button type="submit">Job anlegen</button>
+        </form>
+        <p id="job-msg" hidden></p>
+      </div>
+      <div class="card">
+        <h2>Jobs</h2>
+        <table>
+          <thead><tr><th>Erstellt</th><th>Art</th><th>Crawler</th><th>Status</th><th>Ziele</th><th>Ports</th><th>Läuft ab</th></tr></thead>
+          <tbody id="jobs"></tbody>
+        </table>
+        <p class="hint">Zeile anklicken für das Ergebnis.</p>
+        <div id="job-detail" hidden></div>
+      </div>
+    
+      <div class="card">
+        <h2>Audit-Log</h2>
+        <table>
+          <thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Details</th></tr></thead>
+          <tbody id="audit"></tbody>
+        </table>
+      </div>
+    </div>
+
+    
+
     <div class="panel" data-panel="settings" hidden>
       <div class="card">
         <h2>Benachrichtigungen per Discord</h2>
@@ -204,15 +272,7 @@
       </div>
     </div>
 
-    <div class="panel" data-panel="audit" hidden>
-      <div class="card">
-        <h2>Audit-Log</h2>
-        <table>
-          <thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Details</th></tr></thead>
-          <tbody id="audit"></tbody>
-        </table>
-      </div>
-    </div>
+    
   </section>
 </main>
 </body>

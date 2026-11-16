@@ -6,14 +6,15 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X netcrawler/internal/version.Version=${VERSION}" \
+# Empty: the version from internal/version/VERSION.
+ARG VERSION=
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w ${VERSION:+-X netcrawler/internal/version.Version=${VERSION}}" \
     -o /out/ ./cmd/netcrawl-server ./cmd/netcrawl-agent
 # Empty, nonroot-owned /data so a Docker volume mounted there is writable.
 RUN mkdir -p /out/data
 # Agent binaries for the crawler installer (served by netcrawl-server).
 RUN for arch in amd64 arm64; do \
-      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X netcrawler/internal/version.Version=${VERSION}" \
+      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w ${VERSION:+-X netcrawler/internal/version.Version=${VERSION}}" \
         -o /out/agent/netcrawl-agent-linux-$arch ./cmd/netcrawl-agent; \
     done
 

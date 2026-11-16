@@ -15,6 +15,7 @@ import (
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store"
 	"netcrawler/internal/store/memstore"
+	"netcrawler/internal/version"
 )
 
 const testPassword = "correct-horse-battery"
@@ -117,7 +118,7 @@ func TestAdminAuth(t *testing.T) {
 	resp := f.do("GET", "/api/v1/admin/me", "", "", withCookie(c))
 	var me map[string]string
 	_ = json.NewDecoder(resp.Body).Decode(&me)
-	if resp.StatusCode != 200 || me["username"] != "admin" {
+	if resp.StatusCode != 200 || me["username"] != "admin" || me["version"] != version.Version {
 		t.Errorf("me: %d %v", resp.StatusCode, me)
 	}
 	// CSRF: cookie-authenticated writes need a JSON content type.
