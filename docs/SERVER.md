@@ -10,6 +10,7 @@ Netz anlegen (Bereich, Deny-Liste, Zeitplan)
         ▼
 Scheduler ── alle 30 Min. ──► Host-Erkennung  ──► Crawler ──► wer ist online?
           └─ täglich ───────► Portscan (Top 100, nur Hosts, die online sind)
+Neuer Host erkannt ──────────► sofort Portscan nur für diesen Host
         │
         ▼
 Inventar (IP, Hostname, offene Ports, zuerst/zuletzt gesehen)
@@ -160,6 +161,8 @@ docker compose run --rm server network add --crawler lan-1 --name Heimnetz \
 ```
 
 Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`. Oder in der Weboberfläche unter „Netze“.
+
+Findet die Erkennung nach dem Initialbestand einen neuen Host, legt der Server sofort einen Portscan nur für diesen Host an. Der tägliche Portscan verschiebt sich dadurch nicht.
 
 ### 5. Ergebnisse ansehen
 
