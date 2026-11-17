@@ -339,11 +339,16 @@ async function renderHosts() {
       } catch { box.checked = !box.checked; }
     });
     td.appendChild(box);
-    tr.addEventListener("click", () => {
+    const open = () => {
       selectedHost = { network_id: h.network_id, ip: h.ip };
       for (const r of tbody.children) r.classList.remove("selected");
       tr.classList.add("selected");
       showHost(h);
+    };
+    tr.tabIndex = 0; // keyboard: Tab to a row, Enter opens it
+    tr.addEventListener("click", open);
+    tr.addEventListener("keydown", (ev) => {
+      if (ev.target === tr && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); open(); }
     });
     if (selectedHost && selectedHost.network_id === h.network_id && selectedHost.ip === h.ip) tr.classList.add("selected");
     tbody.appendChild(tr);
@@ -354,23 +359,35 @@ async function renderHosts() {
     // Do not throw away a name the user is typing (auto refresh).
     const input = $("#host-name");
     if (!input || (document.activeElement !== input && input.value === input.dataset.saved)) showHost(sel);
-  } else { selectedHost = null; $("#host-detail").hidden = true; }
+  } else if ($("#host-dialog").open) $("#host-dialog").close();
+}
+
+// The host detail opens as a panel over the list (modal <dialog>), so it
+// appears where the user is, however long the list is.
+function setupHostDialog() {
+  const dlg = $("#host-dialog");
+  dlg.addEventListener("close", () => {
+    const sel = selectedHost && $$("#hosts tr.selected")[0];
+    selectedHost = null;
+    for (const r of $("#hosts").children) r.classList.remove("selected");
+    if (sel) sel.focus();
+  });
+  // A click on the dimmed area next to the panel closes it.
+  dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
 }
 
 async function showHost(h) {
+  const dlg = $("#host-dialog");
   const box = $("#host-detail");
-  box.hidden = false;
   box.replaceChildren();
+  if (!dlg.open) dlg.showModal();
 
   const head = el("div", undefined, "title-row detail-head");
   const title = el("h3", (h.custom_name || h.hostname || h.ip) + (h.custom_name || h.hostname ? " – " + h.ip : ""));
+  title.id = "host-title";
   const close = el("button", "Schließen", "ghost small");
   close.type = "button";
-  close.addEventListener("click", () => {
-    selectedHost = null;
-    box.hidden = true;
-    for (const r of $("#hosts").children) r.classList.remove("selected");
-  });
+  close.addEventListener("click", () => dlg.close());
   head.append(title, close);
   box.appendChild(head);
 
@@ -740,6 +757,7 @@ async function renderAudit() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
+  setupHostDialog();
   $("#theme-switch").addEventListener("click", () => {
     const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     applyTheme(theme);
