@@ -9,6 +9,15 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.8.0 – 2026-11-17
+
+- Netze bearbeiten: „Bearbeiten“ unter „Netze & Crawler“ öffnet ein Panel mit allen Einstellungen
+  (Name, Bereich, Ausnahmen, Intervalle, Ports, Offline-Schwellen, aktiv). Inventar und Verlauf bleiben erhalten;
+  der Crawler muss nichts neu holen, die Änderung gilt ab dem nächsten geplanten Scan (OwnDo #187).
+- Portscan-Intervall in Minuten, mindestens 15 Minuten (bisher mindestens 1 Stunde).
+  API: neues Feld `portscan_interval_minutes`, `portscan_interval_hours` bleibt gültig; `scan_preset` in der Netz-Ansicht.
+- Kommandozeile: `network update --id N …` ändert nur die angegebenen Einstellungen.
+
 ## 0.7.0 – 2026-11-17
 
 - Inventar: Host-Details öffnen als Panel von rechts über der Liste statt ganz unten auf der Seite –

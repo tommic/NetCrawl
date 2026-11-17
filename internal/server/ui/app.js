@@ -490,6 +490,67 @@ async function showHost(h) {
   evBox.appendChild(table);
 }
 
+// every formats an interval in minutes: "30 Min.", "2 Std.", "90 Min.".
+function every(min) {
+  return min % 60 === 0 ? `${min / 60} Std.` : `${min} Min.`;
+}
+
+// portscanMinutes reads a "number + unit" pair from a form.
+function portscanMinutes(f) {
+  return parseInt(f.portscan.value, 10) * parseInt(f.portscan_unit.value, 10);
+}
+
+function showNetworkEdit(n) {
+  const f = $("#network-edit");
+  f.dataset.id = String(n.id);
+  $("#network-title").textContent = `Netz „${n.name}“ bearbeiten`;
+  $("#network-edit-crawler").textContent = n.crawler_id;
+  f.name.value = n.name;
+  f.targets.value = n.targets.join(", ");
+  f.deny.value = n.deny.join(", ");
+  f.discovery.value = n.discovery_interval_minutes;
+  const hours = n.portscan_interval_minutes % 60 === 0;
+  f.portscan.value = hours ? n.portscan_interval_minutes / 60 : n.portscan_interval_minutes;
+  f.portscan_unit.value = hours ? "60" : "1";
+  f.scan_preset.value = n.scan_preset;
+  f.querySelector('option[value="custom"]').hidden = n.scan_preset !== "custom";
+  f.dataset.scanPorts = JSON.stringify(n.scan_ports);
+  f.dataset.discoveryPorts = JSON.stringify(n.discovery_ports);
+  f.offline_info.value = n.offline_info_hours;
+  f.offline_warn.value = n.offline_warn_hours;
+  f.reverse_dns.checked = n.reverse_dns;
+  f.enabled.checked = n.enabled;
+  $("#network-edit-msg").hidden = true;
+  $("#network-dialog").showModal();
+}
+
+async function saveNetworkEdit(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const custom = f.scan_preset.value === "custom";
+  try {
+    // PUT replaces all settings, so the form sends every one of them.
+    await api("PUT", `/api/v1/admin/networks/${f.dataset.id}`, {
+      name: f.name.value.trim(),
+      targets: list(f.targets.value),
+      deny: list(f.deny.value),
+      discovery_ports: JSON.parse(f.dataset.discoveryPorts),
+      scan_preset: custom ? "" : f.scan_preset.value,
+      scan_ports: custom ? JSON.parse(f.dataset.scanPorts) : [],
+      discovery_interval_minutes: parseInt(f.discovery.value, 10),
+      portscan_interval_minutes: portscanMinutes(f),
+      offline_info_hours: parseInt(f.offline_info.value, 10),
+      offline_warn_hours: parseInt(f.offline_warn.value, 10),
+      reverse_dns: f.reverse_dns.checked,
+      enabled: f.enabled.checked,
+    });
+    $("#network-dialog").close();
+    await refresh();
+  } catch (e) {
+    message("#network-edit-msg", "Nicht gespeichert: " + e.message, true);
+  }
+}
+
 async function renderNetworks() {
   const tbody = $("#networks");
   tbody.replaceChildren();
@@ -501,9 +562,13 @@ async function renderNetworks() {
     cell(tr, n.deny.join(", ") || "–", "mono");
     cell(tr, `${n.hosts_online} / ${n.hosts} online`);
     cell(tr, fmt(n.discovery_done_at) + ` (alle ${n.discovery_interval_minutes} Min.)`);
-    cell(tr, fmt(n.portscan_done_at) + ` (alle ${n.portscan_interval_hours} Std.)`);
+    cell(tr, fmt(n.portscan_done_at) + ` (alle ${every(n.portscan_interval_minutes)})`);
     cell(tr, n.enabled ? "ja" : "nein");
     const td = cell(tr, "");
+    const edit = el("button", "Bearbeiten", "ghost small");
+    edit.type = "button";
+    edit.addEventListener("click", () => showNetworkEdit(n));
+    td.appendChild(edit);
     for (const [kind, text] of [["discovery", "Erkennung jetzt"], ["ports", "Portscan jetzt"]]) {
       const b = el("button", text, "ghost small");
       b.addEventListener("click", async () => {
@@ -758,6 +823,9 @@ async function renderAudit() {
 document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
   setupHostDialog();
+  $("#network-edit").addEventListener("submit", saveNetworkEdit);
+  $("#network-edit-close").addEventListener("click", () => $("#network-dialog").close());
+  $("#network-dialog").addEventListener("click", (ev) => { if (ev.target === ev.currentTarget) ev.currentTarget.close(); });
   $("#theme-switch").addEventListener("click", () => {
     const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     applyTheme(theme);
@@ -803,7 +871,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         targets: list(f.get("targets")),
         deny: list(f.get("deny")),
         discovery_interval_minutes: parseInt(f.get("discovery"), 10),
-        portscan_interval_hours: parseInt(f.get("portscan"), 10),
+        portscan_interval_minutes: portscanMinutes(ev.target),
         scan_preset: f.get("scan_preset"),
         reverse_dns: f.get("reverse_dns") === "on",
       });

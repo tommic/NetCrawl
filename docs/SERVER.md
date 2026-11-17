@@ -160,7 +160,16 @@ docker compose run --rm server network add --crawler lan-1 --name Heimnetz \
   --target 192.168.1.0/24 --deny 192.168.1.1,192.168.1.250-192.168.1.254
 ```
 
-Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`. Oder in der Weboberfläche unter „Netze“.
+Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`. Oder in der Weboberfläche unter „Netze & Crawler“. Der Portscan geht bis hinunter auf 15 Minuten (`--portscan-interval 30m`).
+
+Ein bestehendes Netz ändern – Inventar und Verlauf bleiben erhalten, am Crawler ist nichts zu tun (jeder Job bringt Ziele und Ports mit, die Änderung gilt ab dem nächsten geplanten Scan):
+
+- Weboberfläche: „Netze & Crawler“ → „Bearbeiten“ in der Zeile des Netzes.
+- Kommandozeile: ändert nur die angegebenen Einstellungen, z. B.
+
+```bash
+docker compose run --rm server network update --id 1 --portscan-interval 30m
+```
 
 Findet die Erkennung nach dem Initialbestand einen neuen Host, legt der Server sofort einen Portscan nur für diesen Host an. Der tägliche Portscan verschiebt sich dadurch nicht.
 
@@ -190,7 +199,7 @@ Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `craw
 | `GET`/`PUT` | `/api/v1/admin/settings/public-url` | Server-Adresse für Installationsbefehle (wenn nicht per `NETCRAWL_PUBLIC_URL` gesetzt) |
 | `POST` | `/api/v1/admin/crawlers/{id}/enroll` | `{"reverse_dns": true}` → Installationsbefehl mit Einmal-Code |
 | `GET`/`POST` | `/api/v1/admin/networks` | Netze auflisten / anlegen |
-| `PUT` | `/api/v1/admin/networks/{id}` | Netz ändern (z. B. `"enabled": false`) |
+| `PUT` | `/api/v1/admin/networks/{id}` | Netz ändern – ersetzt **alle** Einstellungen (nicht angegebene fallen auf den Standard zurück), daher das ganze Netz schicken. Portscan-Intervall: `portscan_interval_minutes` (min. 15; `portscan_interval_hours` geht weiterhin) |
 | `POST` | `/api/v1/admin/networks/{id}/scan` | `{"kind": "discovery"}` oder `{"kind": "ports"}` sofort |
 | `GET` | `/api/v1/admin/hosts?network_id=` | Inventar |
 | `POST` | `/api/v1/admin/hosts/important` | `{"network_id", "ip", "important"}` |

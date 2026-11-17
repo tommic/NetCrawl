@@ -127,6 +127,39 @@
     </div>
 
     <div class="panel" data-panel="networks" hidden>
+        <dialog id="network-dialog" class="drawer" aria-labelledby="network-title">
+          <form id="network-edit" class="drawer-body">
+            <div class="title-row detail-head"><h3 id="network-title">Netz bearbeiten</h3><button type="button" id="network-edit-close" class="ghost small">Schließen</button></div>
+            <p class="hint">Crawler: <strong id="network-edit-crawler"></strong>. Inventar und Verlauf bleiben erhalten. Die neuen Einstellungen gelten ab dem nächsten geplanten Scan – am Crawler ist nichts zu tun.</p>
+            <label>Name <input name="name" required maxlength="64"></label>
+            <label>Bereich <input name="targets" required spellcheck="false"></label>
+            <label>Ausnehmen (Deny) <input name="deny" spellcheck="false" placeholder="leer = nichts ausnehmen"></label>
+            <div class="row">
+              <label>Erkennung alle (Min.) <input name="discovery" type="number" min="5" required></label>
+              <label>Portscan alle
+                <span class="pair"><input name="portscan" type="number" min="1" required><select name="portscan_unit" aria-label="Einheit"><option value="60">Std.</option><option value="1">Min.</option></select></span>
+              </label>
+            </div>
+            <label>Ports beim Portscan
+              <select name="scan_preset">
+                <option value="top100">Top 100</option>
+                <option value="common">Common (17)</option>
+                <option value="web">Web</option>
+                <option value="database">Datenbanken</option>
+                <option value="tiny">Tiny (22, 80, 443)</option>
+                <option value="custom" hidden>Eigene Auswahl (unverändert)</option>
+              </select>
+            </label>
+            <div class="row">
+              <label>Offline-Info nach (Std.) <input name="offline_info" type="number" min="1" required></label>
+              <label>Offline-Warnung nach (Std.) <input name="offline_warn" type="number" min="1" required></label>
+            </div>
+            <label class="inline"><input type="checkbox" name="reverse_dns"> Hostnamen per DNS</label>
+            <label class="inline"><input type="checkbox" name="enabled"> Netz aktiv (wird gescannt)</label>
+            <div class="row"><button type="submit">Speichern</button></div>
+            <p id="network-edit-msg" hidden></p>
+          </form>
+        </dialog>
       <div class="card">
         <h2>Netze</h2>
         <table>
@@ -143,7 +176,9 @@
           <label>Bereich <input name="targets" placeholder="192.168.1.0/24" required></label>
           <label>Ausnehmen (Deny) <input name="deny" placeholder="192.168.1.1, 192.168.1.200-192.168.1.210"></label>
           <label>Erkennung alle (Min.) <input name="discovery" type="number" min="5" value="30" required></label>
-          <label>Portscan alle (Std.) <input name="portscan" type="number" min="1" value="24" required></label>
+          <label>Portscan alle
+            <span class="pair"><input name="portscan" type="number" min="1" value="24" required><select name="portscan_unit" aria-label="Einheit"><option value="60">Std.</option><option value="1">Min.</option></select></span>
+          </label>
           <label>Ports beim Portscan
             <select name="scan_preset">
               <option value="top100">Top 100</option>
