@@ -34,7 +34,9 @@ type NetworkView struct {
 	DiscoveryPorts           []int      `json:"discovery_ports"`
 	ScanPorts                []int      `json:"scan_ports"`
 	DiscoveryIntervalMinutes int        `json:"discovery_interval_minutes"`
-	PortscanIntervalHours    int        `json:"portscan_interval_hours"`
+	PortscanIntervalMinutes  int        `json:"portscan_interval_minutes"`
+	PortscanIntervalHours    int        `json:"portscan_interval_hours"` // rounded down; use minutes
+	ScanPreset               string     `json:"scan_preset"`
 	OfflineInfoHours         int        `json:"offline_info_hours"`
 	OfflineWarnHours         int        `json:"offline_warn_hours"`
 	ReverseDNS               bool       `json:"reverse_dns"`
@@ -54,7 +56,9 @@ func networkView(n store.Network, hosts []store.Host) NetworkView {
 		ID: n.ID, CrawlerID: n.CrawlerID, Name: n.Name, Targets: n.Targets, Deny: n.Deny,
 		DiscoveryPorts: n.DiscoveryPorts, ScanPorts: n.ScanPorts,
 		DiscoveryIntervalMinutes: int(n.DiscoveryInterval.Minutes()),
+		PortscanIntervalMinutes:  int(n.PortscanInterval.Minutes()),
 		PortscanIntervalHours:    int(n.PortscanInterval.Hours()),
+		ScanPreset:               scanPreset(n.ScanPorts),
 		OfflineInfoHours:         int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:         int(n.OfflineWarnAfter.Hours()),
 		ReverseDNS:               n.ReverseDNS, Enabled: n.Enabled, CreatedAt: n.CreatedAt,

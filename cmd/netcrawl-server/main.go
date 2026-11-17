@@ -58,6 +58,10 @@ Usage:
   netcrawl-server network add --crawler ID --name NAME --target CIDR[,..] [--deny IP,..] [--discovery-ports P,..]
                               [--scan-ports P,.. | --scan-preset top100] [--discovery-interval 30m] [--portscan-interval 24h]
                               [--offline-info 24h] [--offline-warn 168h] [--no-reverse-dns]
+  netcrawl-server network update --id N [--name NAME] [--target ..] [--deny ..] [--discovery-ports ..]
+                              [--scan-ports P,.. | --scan-preset NAME] [--discovery-interval 30m] [--portscan-interval 30m]
+                              [--offline-info 24h] [--offline-warn 168h] [--reverse-dns=false] [--enabled=false]
+                              (changes only the given settings; --deny "" removes all exclusions)
   netcrawl-server network list
   netcrawl-server network scan --id N [--kind discovery|ports]
   netcrawl-server hosts [--network N]
@@ -365,7 +369,7 @@ func run(args []string) error {
 		n, err := server.CreateNetwork(ctx, st, "cli", server.NetworkRequest{
 			CrawlerID: *crawler, Name: *name, Targets: splitList(*target), Deny: splitList(*deny),
 			DiscoveryPorts: dp, ScanPorts: sp, ScanPreset: *scanPreset,
-			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalHours: int(scanEvery.Hours()),
+			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalMinutes: int(scanEvery.Minutes()),
 			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()), ReverseDNS: &rdns,
 		}, time.Now())
 		if err != nil {
@@ -374,6 +378,84 @@ func run(args []string) error {
 		fmt.Printf("Network %d %q created for crawler %q: %s (deny: %s), discovery every %s, port scan every %s.\n",
 			n.ID, n.Name, n.CrawlerID, strings.Join(n.Targets, ","), strings.Join(n.Deny, ","), n.DiscoveryInterval, n.PortscanInterval)
 		fmt.Println("The running server schedules the first discovery within its scheduler interval.")
+		return nil
+
+	case "network update":
+		id := fs.Int64("id", 0, "network id")
+		name := fs.String("name", "", "new name")
+		target := fs.String("target", "", "comma separated targets")
+		deny := fs.String("deny", "", "comma separated exclusions (\"\" removes all)")
+		discPorts := fs.String("discovery-ports", "", "ports for host discovery")
+		scanPorts := fs.String("scan-ports", "", "ports for the port scan")
+		scanPreset := fs.String("scan-preset", "", "port preset for the port scan")
+		discEvery := fs.Duration("discovery-interval", 0, "host discovery interval")
+		scanEvery := fs.Duration("portscan-interval", 0, "port scan interval (at least 15m)")
+		offInfo := fs.Duration("offline-info", 0, "info event when a host is gone this long")
+		offWarn := fs.Duration("offline-warn", 0, "warning event when a host is gone this long")
+		rdns := fs.Bool("reverse-dns", true, "ask crawlers for PTR lookups")
+		enabled := fs.Bool("enabled", true, "scan this network")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		st, err := open()
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		cur, err := st.Network(ctx, *id)
+		if err != nil {
+			return fmt.Errorf("network %d: %w", *id, err)
+		}
+		req := server.RequestFromNetwork(cur)
+		if set["name"] {
+			req.Name = *name
+		}
+		if set["target"] {
+			req.Targets = splitList(*target)
+		}
+		if set["deny"] {
+			req.Deny = splitList(*deny)
+		}
+		if set["discovery-ports"] {
+			if req.DiscoveryPorts, err = parsePorts(*discPorts); err != nil {
+				return err
+			}
+		}
+		if set["scan-ports"] {
+			if req.ScanPorts, err = parsePorts(*scanPorts); err != nil {
+				return err
+			}
+		}
+		if set["scan-preset"] {
+			req.ScanPorts, req.ScanPreset = nil, *scanPreset
+		}
+		if set["discovery-interval"] {
+			req.DiscoveryIntervalMinute = int(discEvery.Minutes())
+		}
+		if set["portscan-interval"] {
+			req.PortscanIntervalMinutes = int(scanEvery.Minutes())
+		}
+		if set["offline-info"] {
+			req.OfflineInfoHours = int(offInfo.Hours())
+		}
+		if set["offline-warn"] {
+			req.OfflineWarnHours = int(offWarn.Hours())
+		}
+		if set["reverse-dns"] {
+			req.ReverseDNS = rdns
+		}
+		if set["enabled"] {
+			req.Enabled = enabled
+		}
+		n, err := server.UpdateNetwork(ctx, st, "cli", *id, req)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Network %d %q updated: %s (deny: %s), discovery every %s, port scan every %s, enabled %v.\n",
+			n.ID, n.Name, strings.Join(n.Targets, ","), strings.Join(n.Deny, ","), n.DiscoveryInterval, n.PortscanInterval, n.Enabled)
+		fmt.Println("The running server uses the new settings for the next scheduled scan; crawlers need nothing.")
 		return nil
 
 	case "network list":

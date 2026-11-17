@@ -19,6 +19,7 @@ const (
 	DefaultDiscoveryMinutes = 30
 	MinDiscoveryMinutes     = 5
 	DefaultPortscanHours    = 24
+	MinPortscanMinutes      = 15
 	DefaultOfflineInfoHours = 24
 	DefaultOfflineWarnHours = 7 * 24
 	DefaultDiscoveryPreset  = "discovery"
@@ -37,11 +38,14 @@ type NetworkRequest struct {
 	ScanPreset              string `json:"scan_preset"`
 	ScanPorts               []int  `json:"scan_ports"`
 	DiscoveryIntervalMinute int    `json:"discovery_interval_minutes"`
-	PortscanIntervalHours   int    `json:"portscan_interval_hours"`
-	OfflineInfoHours        int    `json:"offline_info_hours"`
-	OfflineWarnHours        int    `json:"offline_warn_hours"`
-	ReverseDNS              *bool  `json:"reverse_dns"`
-	Enabled                 *bool  `json:"enabled"`
+	// PortscanIntervalMinutes wins over PortscanIntervalHours (kept for
+	// older clients).
+	PortscanIntervalMinutes int   `json:"portscan_interval_minutes"`
+	PortscanIntervalHours   int   `json:"portscan_interval_hours"`
+	OfflineInfoHours        int   `json:"offline_info_hours"`
+	OfflineWarnHours        int   `json:"offline_warn_hours"`
+	ReverseDNS              *bool `json:"reverse_dns"`
+	Enabled                 *bool `json:"enabled"`
 }
 
 // buildNetwork validates a request against the crawler's release and
@@ -107,11 +111,14 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 		ReverseDNS:        req.ReverseDNS == nil || *req.ReverseDNS,
 		Enabled:           req.Enabled == nil || *req.Enabled,
 	}
+	if req.PortscanIntervalMinutes != 0 {
+		n.PortscanInterval = time.Duration(req.PortscanIntervalMinutes) * time.Minute
+	}
 	switch {
 	case n.DiscoveryInterval < MinDiscoveryMinutes*time.Minute:
 		return store.Network{}, invalid("discovery_interval_minutes must be at least %d", MinDiscoveryMinutes)
-	case n.PortscanInterval < time.Hour:
-		return store.Network{}, invalid("portscan_interval_hours must be at least 1")
+	case n.PortscanInterval < MinPortscanMinutes*time.Minute:
+		return store.Network{}, invalid("the port scan interval must be at least %d minutes", MinPortscanMinutes)
 	case n.OfflineInfoAfter < time.Hour || n.OfflineWarnAfter < n.OfflineInfoAfter:
 		return store.Network{}, invalid("offline_info_hours must be at least 1 and offline_warn_hours at least offline_info_hours")
 	}
@@ -137,6 +144,46 @@ func CreateNetwork(ctx context.Context, st store.Store, actor string, req Networ
 		"id": n.ID, "name": n.Name, "crawler_id": n.CrawlerID, "targets": n.Targets, "deny": n.Deny,
 	})
 	return n, nil
+}
+
+// RequestFromNetwork returns a request that keeps all of n's settings, as
+// a base for changing single fields (PUT replaces all settings).
+func RequestFromNetwork(n store.Network) NetworkRequest {
+	rdns, enabled := n.ReverseDNS, n.Enabled
+	return NetworkRequest{
+		CrawlerID: n.CrawlerID, Name: n.Name,
+		Targets: append([]string(nil), n.Targets...), Deny: append([]string(nil), n.Deny...),
+		DiscoveryPorts: append([]int(nil), n.DiscoveryPorts...), ScanPorts: append([]int(nil), n.ScanPorts...),
+		DiscoveryIntervalMinute: int(n.DiscoveryInterval.Minutes()),
+		PortscanIntervalMinutes: int(n.PortscanInterval.Minutes()),
+		OfflineInfoHours:        int(n.OfflineInfoAfter.Hours()),
+		OfflineWarnHours:        int(n.OfflineWarnAfter.Hours()),
+		ReverseDNS:              &rdns, Enabled: &enabled,
+	}
+}
+
+// scanPreset names the preset whose ports are exactly list, or "custom".
+func scanPreset(list []int) string {
+	for _, name := range ports.Presets() {
+		if name == ports.PresetAll {
+			continue // never used for scheduled scans
+		}
+		p, err := ports.Resolve(name, nil)
+		if err != nil || len(p) != len(list) {
+			continue
+		}
+		same := true
+		for i := range p {
+			if p[i] != list[i] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return name
+		}
+	}
+	return ports.PresetCustom
 }
 
 // UpdateNetwork replaces a network's settings; the crawler can't change.
