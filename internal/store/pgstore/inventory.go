@@ -151,7 +151,8 @@ func loadHosts(ctx context.Context, q querier, networkID int64) ([]store.Host, e
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	rows, err = q.Query(ctx, `SELECT network_id, ip, port, first_seen, last_seen FROM host_ports
+	rows, err = q.Query(ctx, `SELECT network_id, ip, port, first_seen, last_seen,
+		service, product, version, extra, service_method, service_seen_at FROM host_ports
 		WHERE $1 = 0 OR network_id = $1 ORDER BY port`, networkID)
 	if err != nil {
 		return nil, err
@@ -160,7 +161,9 @@ func loadHosts(ctx context.Context, q querier, networkID int64) ([]store.Host, e
 	for rows.Next() {
 		var k key
 		var p store.HostPort
-		if err := rows.Scan(&k.net, &k.ip, &p.Port, &p.FirstSeen, &p.LastSeen); err != nil {
+		sv := &p.Service
+		if err := rows.Scan(&k.net, &k.ip, &p.Port, &p.FirstSeen, &p.LastSeen,
+			&sv.Name, &sv.Product, &sv.Version, &sv.Extra, &sv.Method, &sv.SeenAt); err != nil {
 			return nil, err
 		}
 		if i, ok := index[k]; ok {
@@ -229,8 +232,12 @@ func (s *Store) UpdateInventory(ctx context.Context, networkID int64, fn store.I
 			networkID, ip, h.Hostname, h.FirstSeen, h.LastSeen, h.Important, h.OfflineLevel, h.PortsScannedAt)
 		batch.Queue(`DELETE FROM host_ports WHERE network_id = $1 AND ip = $2`, networkID, ip)
 		for _, p := range h.Ports {
-			batch.Queue(`INSERT INTO host_ports (network_id, ip, port, first_seen, last_seen) VALUES ($1, $2, $3, $4, $5)`,
-				networkID, ip, p.Port, p.FirstSeen, p.LastSeen)
+			sv := p.Service
+			batch.Queue(`INSERT INTO host_ports (network_id, ip, port, first_seen, last_seen,
+				service, product, version, extra, service_method, service_seen_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				networkID, ip, p.Port, p.FirstSeen, p.LastSeen,
+				sv.Name, sv.Product, sv.Version, sv.Extra, sv.Method, sv.SeenAt)
 		}
 	}
 	for _, e := range events {

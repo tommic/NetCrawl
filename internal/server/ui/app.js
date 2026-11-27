@@ -20,6 +20,7 @@ const pages = {
   overview: ["Übersicht", "Auf einen Blick: Was hat sich in Ihrem Netz verändert?"],
   events: ["Ereignisse", "Änderungen im Netz, neueste zuerst."],
   hosts: ["Inventar", "Alle gefundenen Hosts. Zeile anklicken für Details und einen eigenen Namen."],
+  services: ["Dienste", "Welche Software in welcher Version auf welchen Geräten läuft."],
   networks: ["Netze & Crawler", "Welche Netze wie oft geprüft werden und welche Crawler das übernehmen."],
   settings: ["Benachrichtigungen", "Änderungen per Discord melden."],
   admin: ["Administration", "Einzelne Jobs, Job-Verlauf und Audit-Log."],
@@ -135,6 +136,7 @@ async function refresh() {
       case "overview": return renderOverview(crawlers);
       case "events": return renderEvents();
       case "hosts": return renderHosts();
+      case "services": return renderServices();
       case "networks": renderCrawlers(crawlers); await renderNetworks(); return renderPublicURL();
       case "admin": await renderJobs(); return renderAudit();
       case "settings": return renderNotify(false);
@@ -145,7 +147,7 @@ async function refresh() {
 }
 
 function fillNetworkSelects() {
-  for (const sel of [$("#ev-network"), $("#host-network")]) {
+  for (const sel of [$("#ev-network"), $("#host-network"), $("#svc-network")]) {
     const cur = sel.value;
     sel.replaceChildren(new Option("Alle Netze", "0"));
     for (const n of networks) sel.appendChild(new Option(n.name, String(n.id)));
@@ -472,14 +474,14 @@ async function showHost(h) {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const hr = document.createElement("tr");
-    for (const t of ["Port", "Offen seit", "Zuletzt bestätigt"]) hr.appendChild(el("th", t));
+    for (const t of ["Port", "Dienst", "Offen seit"]) hr.appendChild(el("th", t));
     thead.appendChild(hr);
     const tbody = document.createElement("tbody");
     for (const p of h.ports) {
       const tr = document.createElement("tr");
       cell(tr, String(p.port), "mono");
+      cell(tr, "").appendChild(serviceLabel(p.service));
       cell(tr, fmt(p.first_seen));
-      cell(tr, fmt(p.last_seen));
       tbody.appendChild(tr);
     }
     table.append(thead, tbody);
@@ -512,6 +514,83 @@ async function showHost(h) {
 // every formats an interval in minutes: "30 Min.", "2 Std.", "90 Min.".
 function every(min) {
   return min % 60 === 0 ? `${min / 60} Std.` : `${min} Min.`;
+}
+
+// ---- services ----
+
+// serviceText is "OpenSSH 9.6p1", or the protocol if the software is unknown.
+function serviceText(sv) {
+  if (!sv) return "";
+  return sv.product ? [sv.product, sv.version].filter(Boolean).join(" ") : sv.name;
+}
+
+function serviceLabel(sv) {
+  if (!sv) return el("span", "–", "muted");
+  const span = el("span", serviceText(sv));
+  if (sv.product) span.appendChild(el("span", " " + sv.name, "muted small"));
+  span.title = [sv.extra, sv.method === "nmap" ? "erkannt mit nmap" : "erkannt über Banner/Header", sv.seen_at ? "zuletzt " + fmt(sv.seen_at) : ""]
+    .filter(Boolean).join(" · ");
+  return span;
+}
+
+let serviceRows = []; // one per host and port with a service
+
+async function renderServices() {
+  const hosts = await api("GET", `/api/v1/admin/hosts?network_id=${$("#svc-network").value}`);
+  serviceRows = [];
+  for (const h of hosts) {
+    for (const p of h.ports) {
+      if (p.service) serviceRows.push({ h, port: p.port, sv: p.service });
+    }
+  }
+  // Known software first (by name), then services without a product.
+  const key = (r) => (r.sv.product || r.sv.name).toLowerCase();
+  serviceRows.sort((a, b) => !a.sv.product - !b.sv.product || key(a).localeCompare(key(b)) || a.sv.version.localeCompare(b.sv.version, undefined, { numeric: true }) ||
+    a.h.ip.localeCompare(b.h.ip, undefined, { numeric: true }) || a.port - b.port);
+  renderServiceTables();
+}
+
+function renderServiceTables() {
+  const q = $("#svc-filter").value.trim().toLowerCase();
+  const rows = serviceRows.filter((r) => !q || [r.sv.product, r.sv.version, r.sv.name, r.sv.extra, r.h.ip, r.h.hostname, r.h.custom_name]
+    .some((v) => (v || "").toLowerCase().includes(q)));
+
+  // Summary: one line per software, its versions with the number of ports.
+  const groups = new Map();
+  for (const r of rows) {
+    const k = (r.sv.product || "") + "\0" + r.sv.name;
+    if (!groups.has(k)) groups.set(k, { sv: r.sv, versions: new Map(), hosts: new Set() });
+    const g = groups.get(k);
+    const v = r.sv.version || "–";
+    g.versions.set(v, (g.versions.get(v) || 0) + 1);
+    g.hosts.add(r.h.network_id + "/" + r.h.ip);
+  }
+  const sum = $("#svc-summary");
+  sum.replaceChildren();
+  for (const g of groups.values()) {
+    const tr = document.createElement("tr");
+    cell(tr, g.sv.product || "unbekannt", g.sv.product ? "strong" : "muted");
+    cell(tr, g.sv.name);
+    cell(tr, [...g.versions].map(([v, n]) => n > 1 ? `${v} (${n}×)` : v).join(", "));
+    cell(tr, String(g.hosts.size));
+    sum.appendChild(tr);
+  }
+  if (!groups.size) emptyRow(sum, 4, serviceRows.length ? "Nichts gefunden." : "Noch keine Dienste erkannt – sie kommen mit dem nächsten Portscan.");
+
+  const tbody = $("#services");
+  tbody.replaceChildren();
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    cell(tr, r.sv.product || "–", r.sv.product ? "" : "muted");
+    cell(tr, r.sv.version || "–", "mono");
+    cell(tr, r.sv.name);
+    const host = cell(tr, "");
+    host.append(el("span", r.h.ip, "mono"), document.createTextNode(" "), hostName(r.h));
+    cell(tr, String(r.port), "mono");
+    cell(tr, r.sv.seen_at ? ago(r.sv.seen_at) : "–").title = r.sv.method === "nmap" ? "erkannt mit nmap" : "erkannt über Banner/Header";
+    tbody.appendChild(tr);
+  }
+  if (!rows.length) emptyRow(tbody, 6, serviceRows.length ? "Nichts gefunden." : "Noch keine Dienste erkannt.");
 }
 
 // ---- network dialog (create and edit) ----
@@ -976,6 +1055,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#ev-network").addEventListener("change", renderEvents);
   $("#ev-baseline").addEventListener("change", renderEvents);
   $("#host-network").addEventListener("change", renderHosts);
+  $("#svc-network").addEventListener("change", renderServices);
+  $("#svc-filter").addEventListener("input", renderServiceTables);
   $("#refresh").addEventListener("click", refresh);
 
   $("#login-form").addEventListener("submit", async (ev) => {

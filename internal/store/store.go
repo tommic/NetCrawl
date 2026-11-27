@@ -168,6 +168,31 @@ type HostPort struct {
 	Port      int
 	FirstSeen time.Time
 	LastSeen  time.Time
+	// Service is what runs behind the port, from the last port scan that
+	// could identify it (zero if never identified).
+	Service Service
+}
+
+// Service is an identified service on a port.
+type Service struct {
+	Name    string // protocol, e.g. "ssh", "http"
+	Product string // e.g. "OpenSSH"
+	Version string // e.g. "9.6p1"
+	Extra   string // e.g. "Ubuntu Linux; protocol 2.0"
+	Method  string // "nmap" or "banner"
+	// SeenAt is when it was last identified.
+	SeenAt *time.Time
+}
+
+// Label is "OpenSSH 9.6p1", or the protocol name if the product is unknown.
+func (s Service) Label() string {
+	if s.Product == "" {
+		return s.Name
+	}
+	if s.Version == "" {
+		return s.Product
+	}
+	return s.Product + " " + s.Version
 }
 
 // Event severities.

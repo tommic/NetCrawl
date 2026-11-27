@@ -211,7 +211,13 @@ func fetchHTTPInfo(conn net.Conn, host string) (title, server string) {
 	if _, err := conn.Write([]byte(req)); err != nil {
 		return "", ""
 	}
-	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	return fetchHTTPInfoFrom(bufio.NewReader(conn))
+}
+
+// fetchHTTPInfoFrom reads an HTTP response and returns its title and
+// Server header.
+func fetchHTTPInfoFrom(r *bufio.Reader) (title, server string) {
+	resp, err := http.ReadResponse(r, nil)
 	if err != nil {
 		return "", ""
 	}

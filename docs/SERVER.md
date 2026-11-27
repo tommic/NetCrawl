@@ -33,8 +33,16 @@ Ereignisse (Weboberfläche, CLI, JSONL-Log, Discord)
 | Hostname geändert | Info |
 | Port neu offen | **Warnung** |
 | Port nicht mehr offen | Info |
+| andere Version derselben Software auf einem Port | Info |
+| andere Software auf einem Port | **Warnung** |
 
 Die Schwellen sind pro Netz einstellbar.
+
+### Dienste und Versionen
+
+Beim Portscan erkennt der Crawler, welche Software hinter jedem offenen Port läuft (z. B. „OpenSSH 9.6p1“, „nginx 1.24.0“). Ist **nmap** auf dem Crawler installiert, nutzt er `nmap -sV` (genau, kennt tausende Dienste); sonst liest er selbst Banner, HTTP-Header und TLS aus (gängige Dienste wie OpenSSH, nginx, Apache, Postfix, MySQL/MariaDB, FTP). Das Docker-Image des Crawlers bringt nmap mit; bei der Installation per Skript: `sudo apt install nmap`.
+
+Kontaktiert werden nur Ports, die der Portscan gerade offen gefunden hat. Ergebnis: Seite **Dienste** (Software mit Versionen und Geräten, Suche) und im Host-Panel. Abschalten auf dem Crawler: `"no_service_detection": true` in der `agent.json`.
 
 ### Benachrichtigung per Discord
 
@@ -78,7 +86,7 @@ Im Browser unter `http://127.0.0.1:8080` anmelden. Unter „Crawler“ lässt si
 
 ## Weboberfläche
 
-Unter `/` (Menü links, auf dem Handy oben): **Übersicht** (Hosts online, neue Hosts und Warnungen der letzten 24 h, Crawler offline, neueste Ereignisse, Netzwerk-Status, „Erkennung jetzt“/„Portscan jetzt“ für alle Netze), **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung; Klick öffnet Details, eigenen Namen und den Schalter „Wichtiges Gerät“), **Netze & Crawler** (Netze anlegen und bearbeiten in einem Panel mit Erklärungen zu jeder Einstellung, Crawler anlegen mit Installationsbefehl, Status online/offline, Freigabe ändern, deaktivieren), **Benachrichtigungen** (Discord) und **Administration** (einzelne Jobs, Job-Verlauf, Audit-Log). Dunkles Design, mit dem Schalter unten im Menü auf hell umschaltbar (merkt sich der Browser). Unten im Menü steht die Server-Version. Auf sehr breiten Bildschirmen bleibt die Oberfläche bei 1760 px Breite zentriert. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
+Unter `/` (Menü links, auf dem Handy oben): **Übersicht** (Hosts online, neue Hosts und Warnungen der letzten 24 h, Crawler offline, neueste Ereignisse, Netzwerk-Status, „Erkennung jetzt“/„Portscan jetzt“ für alle Netze), **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Dienste** (Software und Versionen pro Port, gruppiert und durchsuchbar), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung; Klick öffnet Details, eigenen Namen und den Schalter „Wichtiges Gerät“), **Netze & Crawler** (Netze anlegen und bearbeiten in einem Panel mit Erklärungen zu jeder Einstellung, Crawler anlegen mit Installationsbefehl, Status online/offline, Freigabe ändern, deaktivieren), **Benachrichtigungen** (Discord) und **Administration** (einzelne Jobs, Job-Verlauf, Audit-Log). Dunkles Design, mit dem Schalter unten im Menü auf hell umschaltbar (merkt sich der Browser). Unten im Menü steht die Server-Version. Auf sehr breiten Bildschirmen bleibt die Oberfläche bei 1760 px Breite zentriert. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
 
 ## Einrichtung für ein echtes Netz
 
