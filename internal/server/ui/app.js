@@ -519,7 +519,7 @@ function every(min) {
 // Port presets and the defaults of a new network come from the server.
 const presetLabels = {
   top100: "Top 100 – die häufigsten Ports", common: "Häufige Dienste", web: "Web-Server",
-  database: "Datenbanken", tiny: "Minimal – SSH und Web",
+  database: "Datenbanken", tiny: "Minimal – SSH und Web", discovery: "Wie die Host-Erkennung",
 };
 let networkOptions = null; // { presets: name -> ports, defaults }
 let networkOptionsLoad = null;
@@ -529,9 +529,12 @@ function loadNetworkOptions() {
     networkOptions = { presets: Object.fromEntries(o.presets.map((p) => [p.name, p.ports])), defaults: o.defaults };
     const sel = $("#network-edit").scan_preset;
     const custom = sel.querySelector('option[value="custom"]');
-    for (const [name, label] of Object.entries(presetLabels)) {
+    // Every server preset gets an option (known ones first, with a German
+    // label), so a network using any of them never shows an empty select.
+    const names = [...Object.keys(presetLabels), ...o.presets.map((p) => p.name)];
+    for (const name of new Set(names)) {
       const ports = networkOptions.presets[name];
-      if (ports) sel.insertBefore(new Option(`${label} (${ports.length})`, name), custom);
+      if (ports) sel.insertBefore(new Option(`${presetLabels[name] || name} (${ports.length})`, name), custom);
     }
     const disc = networkOptions.presets.discovery || [];
     $("#discovery-ports").textContent = `${disc.length} Ports`;
@@ -552,13 +555,18 @@ function portSummary(list) {
   return out.join(", ");
 }
 
-// Number + unit pairs in the form: [field name, API key]. The unit select
-// is "<name>_unit" and holds the factor to the API unit.
+// Number + unit pairs in the form: [field name, API key, minimum in API
+// units]. The unit select is "<name>_unit" and holds the factor to the API unit.
 const networkPairs = [
-  ["discovery", "discovery_interval_minutes"], ["portscan", "portscan_interval_minutes"],
-  ["offline_critical", "offline_critical_minutes"], ["offline_info", "offline_info_hours"],
-  ["offline_warn", "offline_warn_hours"],
+  ["discovery", "discovery_interval_minutes", 5], ["portscan", "portscan_interval_minutes", 15],
+  ["offline_critical", "offline_critical_minutes", 5], ["offline_info", "offline_info_hours", 1],
+  ["offline_warn", "offline_warn_hours", 1],
 ];
+
+// pairMin lets the browser check the server's minimum in the chosen unit.
+function pairMin(f, [k, , min]) {
+  f[k].min = String(Math.ceil(min / parseInt(f[k + "_unit"].value, 10)));
+}
 
 // setPair uses the larger unit when the value fits it evenly (1440 min -> 24 Std.).
 function setPair(input, unit, value) {
@@ -598,7 +606,9 @@ async function openNetworkDialog(n) {
   editing = n;
   f.reset();
   $("#network-crawler-field").hidden = !!n;
-  f.crawler_id.required = !n;
+  // Disabled: left out of the form data, so a crawler list refresh while
+  // editing doesn't count as a change.
+  f.crawler_id.disabled = !!n;
   $("#network-title").textContent = n ? `Netz „${n.name}“ bearbeiten` : "Neues Netz";
   $("#network-edit-intro").textContent = n
     ? `Crawler: ${n.crawler_id}. Inventar und Verlauf bleiben erhalten. Änderungen gelten ab dem nächsten geplanten Scan – am Crawler ist nichts zu tun.`
@@ -607,7 +617,7 @@ async function openNetworkDialog(n) {
   f.name.value = v.name || "";
   f.targets.value = v.targets.join(", ");
   f.deny.value = v.deny.join(", ");
-  for (const [k, key] of networkPairs) setPair(f[k], f[k + "_unit"], v[key]);
+  for (const p of networkPairs) { setPair(f[p[0]], f[p[0] + "_unit"], v[p[1]]); pairMin(f, p); }
   f.scan_preset.value = v.scan_preset;
   f.scan_ports.value = v.scan_preset === "custom" ? portSummary(v.scan_ports) : "";
   f.reverse_dns.checked = v.reverse_dns;
@@ -636,6 +646,7 @@ function setupNetworkDialog() {
   const f = $("#network-edit");
   f.addEventListener("submit", saveNetwork);
   f.scan_preset.addEventListener("change", showPresetInfo);
+  for (const p of networkPairs) f[p[0] + "_unit"].addEventListener("change", () => pairMin(f, p));
   f.addEventListener("input", () => { $("#network-unsaved").hidden = true; });
   $("#network-edit-close").addEventListener("click", closeNetworkDialog);
   $("#network-cancel").addEventListener("click", closeNetworkDialog);

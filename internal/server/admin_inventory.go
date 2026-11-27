@@ -107,10 +107,9 @@ type NetworkOptions struct {
 }
 
 func (s *Server) handleNetworkOptions(w http.ResponseWriter, _ *http.Request) {
-	named := ports.Named()
-	out := NetworkOptions{Presets: make([]PortPreset, 0, len(named)), Defaults: networkView(DefaultNetwork(), nil)}
+	out := NetworkOptions{Presets: []PortPreset{}, Defaults: networkView(DefaultNetwork(), nil)}
 	for _, name := range ports.Presets() {
-		if list, ok := named[name]; ok {
+		if list, ok := ports.Named(name); ok {
 			out.Presets = append(out.Presets, PortPreset{Name: name, Ports: list})
 		}
 	}

@@ -279,7 +279,7 @@ func (u *updater) sweep() {
 		missing := ref.Sub(h.LastSeen)
 		var level string
 		switch {
-		case h.Important && missing >= u.n.OfflineCriticalAfter:
+		case h.Important && u.n.OfflineCriticalAfter > 0 && missing >= u.n.OfflineCriticalAfter:
 			level = store.SeverityCritical
 		case missing >= u.n.OfflineWarnAfter:
 			level = store.SeverityWarning
@@ -317,9 +317,13 @@ func humanDuration(d time.Duration) string {
 	switch {
 	case d >= 48*time.Hour:
 		return fmt.Sprintf("%d Tagen", int(d.Hours()/24))
-	case d >= time.Hour:
+	case d >= 2*time.Hour:
 		return fmt.Sprintf("%d Stunden", int(d.Hours()))
-	default:
+	case d >= time.Hour:
+		return "einer Stunde"
+	case d >= 2*time.Minute:
 		return fmt.Sprintf("%d Minuten", int(d.Minutes()))
+	default:
+		return "einer Minute"
 	}
 }

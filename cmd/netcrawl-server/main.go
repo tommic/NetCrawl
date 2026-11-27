@@ -359,6 +359,10 @@ func run(args []string) error {
 			return err
 		}
 		sp := portSpecs(*scanPorts)
+		crit, err := wholeMinutes("offline-critical", *offCrit)
+		if err != nil {
+			return err
+		}
 		st, err := open()
 		if err != nil {
 			return err
@@ -370,7 +374,7 @@ func run(args []string) error {
 			DiscoveryPorts: dp, ScanPorts: sp, ScanPreset: *scanPreset,
 			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalMinutes: int(scanEvery.Minutes()),
 			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()),
-			OfflineCriticalMinutes: int(offCrit.Minutes()), ReverseDNS: &rdns,
+			OfflineCriticalMinutes: crit, ReverseDNS: &rdns,
 		}, time.Now())
 		if err != nil {
 			return err
@@ -443,7 +447,9 @@ func run(args []string) error {
 			req.OfflineWarnHours = int(offWarn.Hours())
 		}
 		if set["offline-critical"] {
-			req.OfflineCriticalMinutes = int(offCrit.Minutes())
+			if req.OfflineCriticalMinutes, err = wholeMinutes("offline-critical", *offCrit); err != nil {
+				return err
+			}
 		}
 		if set["reverse-dns"] {
 			req.ReverseDNS = rdns
@@ -757,6 +763,15 @@ func parsePorts(s string) ([]int, error) {
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// wholeMinutes converts a duration flag to minutes, rejecting values that
+// would be rounded (e.g. 30s, 90s) instead of silently changing them.
+func wholeMinutes(flag string, d time.Duration) (int, error) {
+	if d < time.Minute || d%time.Minute != 0 {
+		return 0, fmt.Errorf("--%s must be whole minutes, e.g. 30m or 2h (got %s)", flag, d)
+	}
+	return int(d.Minutes()), nil
 }
 
 // portSpecs reads "22,80,8000-8100"; the server checks the entries.

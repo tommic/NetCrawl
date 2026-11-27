@@ -23,7 +23,9 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 - „Wichtig“ neu gedacht (OwnDo #189): Wichtige Geräte haben eine eigene, kurze Schwelle –
   „Kritisch“ nach 60 Minuten Fehlen (pro Netz einstellbar, mindestens 5 Minuten) statt erst nach der Warnschwelle (7 Tage).
   Im Host-Panel per Schalter mit Erklärung setzbar. API: `offline_critical_minutes`, Kommandozeile: `--offline-critical`.
-  Bestehende Netze bekommen beim Update automatisch 60 Minuten.
+  Die Schwelle muss länger sein als die Host-Erkennung (ein einzelner verpasster Rundgang löst keinen Alarm aus);
+  ohne Angabe gilt 60 Minuten, mindestens aber zwei Erkennungs-Intervalle. Bestehende Netze bekommen das beim Update automatisch.
+- Meldungstexte: „seit einer Stunde“ statt „seit 1 Stunden“.
 
 ## 0.8.0 – 2026-11-17
 

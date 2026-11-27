@@ -134,7 +134,7 @@
 
             <fieldset>
               <legend>Netz</legend>
-              <label id="network-crawler-field">Crawler <select name="crawler_id" class="crawler-select"></select>
+              <label id="network-crawler-field">Crawler <select name="crawler_id" class="crawler-select" required></select>
                 <span class="help">Der Crawler, der dieses Netz scannt. Er darf nur Adressen aus seiner Freigabe scannen.</span></label>
               <label>Name <input name="name" required maxlength="64" placeholder="Heimnetz"></label>
               <label>Bereich <input name="targets" required spellcheck="false" placeholder="192.168.1.0/24">
@@ -175,7 +175,7 @@
               <legend>Meldungen bei fehlenden Geräten</legend>
               <p class="help">Gezählt ab der letzten Host-Erkennung, in der das Gerät noch geantwortet hat. Fällt der Crawler aus, gibt es also keine Fehlalarme. Kommt das Gerät zurück, meldet NetCrawl „wieder erreichbar“.</p>
               <div class="setting">
-                <div class="setting-text"><strong>Wichtige Geräte: Kritisch</strong><span class="help">Für Geräte, die im Inventar als <em>wichtig</em> markiert sind (Router, NAS, Server, Kameras): schnelle Meldung als „Kritisch“.</span></div>
+                <div class="setting-text"><strong>Wichtige Geräte: Kritisch</strong><span class="help">Für Geräte, die im Inventar als <em>wichtig</em> markiert sind (Router, NAS, Server, Kameras): schnelle Meldung als „Kritisch“. Muss länger sein als die Host-Erkennung, damit ein einzelner verpasster Rundgang keinen Alarm auslöst.</span></div>
                 <span class="pair"><span class="pre">nach</span><input name="offline_critical" type="number" min="1" required aria-label="Kritisch nach"><select name="offline_critical_unit" aria-label="Einheit Kritisch"><option value="1">Min.</option><option value="60">Std.</option></select></span>
               </div>
               <div class="setting">

@@ -138,16 +138,22 @@ func TestNetworkCriticalThreshold(t *testing.T) {
 		t.Fatalf("default: %d %+v", resp.StatusCode, n)
 	}
 	resp = f.do("PUT", "/api/v1/admin/networks/1", "application/json",
-		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"offline_critical_minutes":15}`, c)
-	if n := decode[NetworkView](t, resp); resp.StatusCode != http.StatusOK || n.OfflineCriticalMinutes != 15 {
-		t.Fatalf("15 minutes: %d %+v", resp.StatusCode, n)
+		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"offline_critical_minutes":45}`, c)
+	if n := decode[NetworkView](t, resp); resp.StatusCode != http.StatusOK || n.OfflineCriticalMinutes != 45 {
+		t.Fatalf("45 minutes: %d %+v", resp.StatusCode, n)
 	}
-	if cur, _ := f.st.Network(context.Background(), 1); RequestFromNetwork(cur).OfflineCriticalMinutes != 15 {
+	if cur, _ := f.st.Network(context.Background(), 1); RequestFromNetwork(cur).OfflineCriticalMinutes != 45 {
 		t.Errorf("RequestFromNetwork lost the threshold")
 	}
 	resp = f.do("PUT", "/api/v1/admin/networks/1", "application/json",
 		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"offline_critical_minutes":2}`, c)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("2 minutes: %d, want 400", resp.StatusCode)
+	}
+	// Not longer than discovery (30 min): one missed run would alarm.
+	resp = f.do("PUT", "/api/v1/admin/networks/1", "application/json",
+		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"offline_critical_minutes":30}`, c)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("30 minutes with discovery every 30: %d, want 400", resp.StatusCode)
 	}
 }

@@ -52,15 +52,21 @@ func Specs(list []int) []Spec {
 	return out
 }
 
-// Named returns every named preset with its ports (not "all" or "custom"),
-// sorted by name.
-func Named() map[string][]int {
+// named holds every named preset with its ports sorted, built once.
+var named = func() map[string][]int {
 	out := make(map[string][]int, len(presets))
 	for name, list := range presets {
 		out[name] = append([]int(nil), list...)
 		sort.Ints(out[name])
 	}
 	return out
+}()
+
+// Named returns the sorted ports of a named preset (not "all" or
+// "custom"). The slice is shared: callers must not modify it.
+func Named(name string) ([]int, bool) {
+	list, ok := named[name]
+	return list, ok
 }
 
 // Presets returns all valid preset names, sorted.

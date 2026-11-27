@@ -116,13 +116,18 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 	n := store.Network{
 		CrawlerID: c.ID, Name: req.Name, Targets: req.Targets, Deny: req.Deny,
 		DiscoveryPorts: req.DiscoveryPorts, ScanPorts: scanPorts,
-		DiscoveryInterval:    time.Duration(def(req.DiscoveryIntervalMinute, DefaultDiscoveryMinutes)) * time.Minute,
-		PortscanInterval:     time.Duration(def(req.PortscanIntervalHours, DefaultPortscanHours)) * time.Hour,
-		OfflineInfoAfter:     time.Duration(def(req.OfflineInfoHours, DefaultOfflineInfoHours)) * time.Hour,
-		OfflineWarnAfter:     time.Duration(def(req.OfflineWarnHours, DefaultOfflineWarnHours)) * time.Hour,
-		OfflineCriticalAfter: time.Duration(def(req.OfflineCriticalMinutes, DefaultOfflineCriticalMinutes)) * time.Minute,
-		ReverseDNS:           req.ReverseDNS == nil || *req.ReverseDNS,
-		Enabled:              req.Enabled == nil || *req.Enabled,
+		DiscoveryInterval: time.Duration(def(req.DiscoveryIntervalMinute, DefaultDiscoveryMinutes)) * time.Minute,
+		PortscanInterval:  time.Duration(def(req.PortscanIntervalHours, DefaultPortscanHours)) * time.Hour,
+		OfflineInfoAfter:  time.Duration(def(req.OfflineInfoHours, DefaultOfflineInfoHours)) * time.Hour,
+		OfflineWarnAfter:  time.Duration(def(req.OfflineWarnHours, DefaultOfflineWarnHours)) * time.Hour,
+		ReverseDNS:        req.ReverseDNS == nil || *req.ReverseDNS,
+		Enabled:           req.Enabled == nil || *req.Enabled,
+	}
+	// Without a value: 60 min, but always two discovery runs, so one missed
+	// run is never a critical alarm.
+	n.OfflineCriticalAfter = time.Duration(req.OfflineCriticalMinutes) * time.Minute
+	if req.OfflineCriticalMinutes == 0 {
+		n.OfflineCriticalAfter = max(DefaultOfflineCriticalMinutes*time.Minute, 2*n.DiscoveryInterval)
 	}
 	if req.PortscanIntervalMinutes != 0 {
 		n.PortscanInterval = time.Duration(req.PortscanIntervalMinutes) * time.Minute
@@ -136,6 +141,9 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 		return store.Network{}, invalid("offline_info_hours must be at least 1 and offline_warn_hours at least offline_info_hours")
 	case n.OfflineCriticalAfter < MinOfflineCriticalMinutes*time.Minute:
 		return store.Network{}, invalid("offline_critical_minutes must be at least %d", MinOfflineCriticalMinutes)
+	case n.OfflineCriticalAfter <= n.DiscoveryInterval:
+		// One missed discovery run must not raise a critical alarm.
+		return store.Network{}, invalid("offline_critical_minutes must be longer than the discovery interval (%d min)", int(n.DiscoveryInterval.Minutes()))
 	}
 	return n, nil
 }
@@ -196,8 +204,8 @@ func RequestFromNetwork(n store.Network) NetworkRequest {
 
 // scanPreset names the preset whose ports are exactly list, or "custom".
 func scanPreset(list []int) string {
-	for name, p := range ports.Named() {
-		if slices.Equal(p, list) {
+	for _, name := range ports.Presets() {
+		if p, ok := ports.Named(name); ok && slices.Equal(p, list) {
 			return name
 		}
 	}
