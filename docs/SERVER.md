@@ -44,6 +44,18 @@ Beim Portscan erkennt der Crawler, welche Software hinter jedem offenen Port lä
 
 Die Diensterkennung hat einen eigenen Zeitplan pro Netz („Diensterkennung alle …“, Standard 24 Std.): Der Portscan kann z. B. stündlich laufen, Software und Versionen werden nur einmal am Tag ermittelt – das schont empfindliche Geräte und die Logs. Neue Geräte und „Portscan jetzt“ bekommen sie immer. Kontaktiert werden nur Ports, die der Portscan gerade offen gefunden hat. Ergebnis: Seite **Dienste** (Software mit Versionen und Geräten, Suche) und im Host-Panel. Abschalten auf dem Crawler: `"no_service_detection": true` in der `agent.json`.
 
+### Export für KI-Agenten
+
+Unter **Administration → Export für KI-Agenten** gibt es das ganze Inventar als Text: Netze, Geräte mit offenen Ports, Dienste und Versionen, eine Software-Übersicht und die Änderungen der letzten 7 Tage – kompakt für ein Sprachmodell. „Ansehen“/„Herunterladen“ funktionieren angemeldet im Browser.
+
+Für einen Agenten einen **Lese-Token** erzeugen (wird nur einmal angezeigt). Er erlaubt ausschließlich den Export, keine Admin-Funktionen, und lässt sich jederzeit löschen:
+
+```bash
+curl -fsS -H 'Authorization: Bearer nce_…' https://<Server>/api/v1/export.txt
+# ohne Header-Unterstützung: https://<Server>/api/v1/export.txt?token=nce_…  (Token steht dann ggf. in Logs)
+# Optionen: days=30 (Änderungen der letzten 30 Tage, 0–90), network_id=1 (nur ein Netz)
+```
+
 ### Benachrichtigung per Discord
 
 Unter **Benachrichtigungen** eine Discord-Webhook-URL eintragen (Discord: Servereinstellungen → Integrationen → Webhooks → „Neuer Webhook“ → „Webhook-URL kopieren“), die Stufe wählen und aktivieren. „Testnachricht senden“ prüft die Verbindung.
@@ -86,7 +98,7 @@ Im Browser unter `http://127.0.0.1:8080` anmelden. Unter „Crawler“ lässt si
 
 ## Weboberfläche
 
-Unter `/` (Menü links, auf dem Handy oben): **Übersicht** (Hosts online, neue Hosts und Warnungen der letzten 24 h, Crawler offline, neueste Ereignisse, Netzwerk-Status, „Erkennung jetzt“/„Portscan jetzt“ für alle Netze), **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Dienste** (Software und Versionen pro Port, gruppiert und durchsuchbar), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung; Klick öffnet Details, eigenen Namen und den Schalter „Wichtiges Gerät“), **Netze & Crawler** (Netze anlegen und bearbeiten in einem Panel mit Erklärungen zu jeder Einstellung, Crawler anlegen mit Installationsbefehl, Status online/offline, Freigabe ändern, deaktivieren), **Benachrichtigungen** (Discord) und **Administration** (einzelne Jobs, Job-Verlauf, Audit-Log). Dunkles Design, mit dem Schalter unten im Menü auf hell umschaltbar (merkt sich der Browser). Unten im Menü steht die Server-Version. Auf sehr breiten Bildschirmen bleibt die Oberfläche bei 1760 px Breite zentriert. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
+Unter `/` (Menü links, auf dem Handy oben): **Übersicht** (Hosts online, neue Hosts und Warnungen der letzten 24 h, Crawler offline, neueste Ereignisse, Netzwerk-Status, „Erkennung jetzt“/„Portscan jetzt“ für alle Netze), **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Dienste** (Software und Versionen pro Port, gruppiert und durchsuchbar), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung; Klick öffnet Details, eigenen Namen und den Schalter „Wichtiges Gerät“), **Administration** enthält auch den Export für KI-Agenten. **Netze & Crawler** (Netze anlegen und bearbeiten in einem Panel mit Erklärungen zu jeder Einstellung, Crawler anlegen mit Installationsbefehl, Status online/offline, Freigabe ändern, deaktivieren), **Benachrichtigungen** (Discord) und **Administration** (einzelne Jobs, Job-Verlauf, Audit-Log). Dunkles Design, mit dem Schalter unten im Menü auf hell umschaltbar (merkt sich der Browser). Unten im Menü steht die Server-Version. Auf sehr breiten Bildschirmen bleibt die Oberfläche bei 1760 px Breite zentriert. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
 
 ## Einrichtung für ein echtes Netz
 
@@ -224,6 +236,10 @@ Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `craw
 | `POST` | `/api/v1/admin/networks/{id}/scan` | `{"kind": "discovery"}` oder `{"kind": "ports"}` sofort |
 | `GET` | `/api/v1/admin/hosts?network_id=` | Inventar |
 | `POST` | `/api/v1/admin/hosts/important` | `{"network_id", "ip", "important"}` |
+| `GET` | `/api/v1/export.txt` | Inventar als Text (Lese-Token `Authorization: Bearer nce_…` oder `?token=`, oder Admin-Login); `days`, `network_id`, `download=1` |
+| `GET` | `/api/v1/admin/export-tokens` | Lese-Tokens (ohne Token-Wert) |
+| `POST` | `/api/v1/admin/export-tokens` | `{"name"}` → neuer Lese-Token (Wert nur in dieser Antwort) |
+| `DELETE` | `/api/v1/admin/export-tokens/{id}` | Lese-Token löschen |
 | `GET` | `/api/v1/admin/network-options` | eingebaute Port-Auswahlen mit ihren Ports und die Standardwerte für neue Netze |
 | `POST` | `/api/v1/admin/hosts/name` | `{"network_id", "ip", "name"}` – eigener Name (max. 64 Zeichen, `""` entfernt ihn) |
 | `GET` | `/api/v1/admin/events?network_id=&ip=&baseline=1&limit=` | Ereignisse, neueste zuerst |

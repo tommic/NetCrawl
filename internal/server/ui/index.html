@@ -295,6 +295,34 @@
 
     <div class="panel" data-panel="admin" hidden>
       <div class="card">
+        <div class="title-row">
+          <h2>Export für KI-Agenten</h2>
+          <div class="row">
+            <a class="button ghost" href="/api/v1/export.txt" target="_blank" rel="noopener">Ansehen</a>
+            <a class="button ghost" href="/api/v1/export.txt?download=1">Herunterladen</a>
+          </div>
+        </div>
+        <p class="hint">Das ganze Inventar als Text: Netze, Geräte mit offenen Ports, Dienste und Versionen, Software-Übersicht und die Änderungen der letzten 7 Tage – kompakt für einen KI-Agenten oder zum Lesen. Ein Agent holt es mit einem eigenen <strong>Lese-Token</strong> ab: Der kann nur den Export lesen, nichts ändern, und lässt sich jederzeit löschen.</p>
+        <table>
+          <thead><tr><th>Name</th><th>Erstellt</th><th>Zuletzt benutzt</th><th></th></tr></thead>
+          <tbody id="export-tokens"></tbody>
+        </table>
+        <form id="export-token-form" class="row">
+          <label>Name <input name="name" maxlength="64" placeholder="z. B. KI-Agent" required></label>
+          <button type="submit">Lese-Token erzeugen</button>
+        </form>
+        <div id="export-token-new" class="install" hidden>
+          <p class="notice"><strong>Token jetzt kopieren</strong> – er wird nur dieses eine Mal angezeigt.</p>
+          <pre id="export-token-value"></pre>
+          <p class="hint">Abruf mit Header (empfohlen):</p>
+          <pre id="export-token-curl"></pre>
+          <p class="hint">Oder als URL, falls der Agent keine Header setzen kann (der Token steht dann ggf. in Logs):</p>
+          <pre id="export-token-url"></pre>
+          <p class="hint">Optionen: <code>days=30</code> (Änderungen der letzten 30 Tage, 0–90), <code>network_id=1</code> (nur ein Netz).</p>
+        </div>
+        <p id="export-token-msg" hidden></p>
+      </div>
+      <div class="card">
         <h2>Einzelnen Job anlegen</h2>
         <form id="job-form" class="row">
           <label>Crawler <select name="crawler_id" class="crawler-select" required></select></label>

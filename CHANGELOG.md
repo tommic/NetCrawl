@@ -9,6 +9,14 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.12.0 – 2026-11-27
+
+- Export für KI-Agenten: das Inventar als Text (`GET /api/v1/export.txt`) – Netze, Geräte mit offenen Ports,
+  Diensten und Versionen, Software-Übersicht, Änderungen der letzten 7 Tage (`days`, `network_id` wählbar).
+  Ansehen und Herunterladen unter „Administration“.
+- Lese-Tokens für Agenten: in der Oberfläche erzeugen (Wert wird einmal angezeigt), auflisten mit letzter Nutzung,
+  löschen. Sie erlauben nur den Export, keine Admin-Funktionen (Migration 0011).
+
 ## 0.11.0 – 2026-11-27
 
 - Crawler aktualisieren sich selbst: Der Crawler meldet seine Version, der Server antwortet mit seiner

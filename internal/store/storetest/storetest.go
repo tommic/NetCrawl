@@ -33,6 +33,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"Enrollments":    testEnrollments,
 		"Notifications":  testNotifications,
 		"CrawlerRelease": testCrawlerRelease,
+		"ExportTokens":   testExportTokens,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, newStore(t)) })
@@ -687,4 +688,30 @@ func testCrawlerRelease(t *testing.T, s store.Store) {
 	if v, _ = s.Setting(ctx, "public_url"); v != "https://10.0.0.2:8443" {
 		t.Fatalf("setting = %q", v)
 	}
+}
+
+func testExportTokens(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	id, err := s.CreateExportToken(ctx, store.ExportToken{Name: "KI-Agent", TokenHash: []byte("hash-1"), CreatedBy: "admin", CreatedAt: t0})
+	mustNoErr(t, err)
+	_, err = s.CreateExportToken(ctx, store.ExportToken{Name: "doppelt", TokenHash: []byte("hash-1"), CreatedBy: "admin", CreatedAt: t0})
+	wantErr(t, err, store.ErrExists)
+
+	used, err := s.UseExportToken(ctx, []byte("hash-1"), t0.Add(time.Hour))
+	mustNoErr(t, err)
+	if used.ID != id || used.Name != "KI-Agent" || used.LastUsedAt == nil || !used.LastUsedAt.Equal(t0.Add(time.Hour)) {
+		t.Errorf("used = %+v", used)
+	}
+	_, err = s.UseExportToken(ctx, []byte("other"), t0)
+	wantErr(t, err, store.ErrNotFound)
+
+	list, err := s.ListExportTokens(ctx)
+	mustNoErr(t, err)
+	if len(list) != 1 || list[0].CreatedBy != "admin" || list[0].LastUsedAt == nil {
+		t.Errorf("list = %+v", list)
+	}
+	mustNoErr(t, s.DeleteExportToken(ctx, id))
+	wantErr(t, s.DeleteExportToken(ctx, id), store.ErrNotFound)
+	_, err = s.UseExportToken(ctx, []byte("hash-1"), t0)
+	wantErr(t, err, store.ErrNotFound)
 }

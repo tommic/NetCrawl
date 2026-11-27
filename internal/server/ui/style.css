@@ -155,6 +155,11 @@ button { font: inherit; min-height: 40px; padding: 0 16px; border: 0; border-rad
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.ghost { background: transparent; color: var(--link); border: 1px solid var(--line-strong); font-weight: 500; }
 button.ghost:hover { background: var(--hover); }
+/* Links that look like buttons (e.g. downloads). */
+a.button { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-weight: 600; text-decoration: none; }
+a.button.ghost { background: transparent; color: var(--link); border: 1px solid var(--line-strong); font-weight: 500; }
+a.button.ghost:hover { background: var(--hover); }
+a.button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 button.small { min-height: 32px; padding: 0 10px; margin: 0 4px 4px 0; font-size: 12px; }
 button.link { min-height: 0; padding: 0; background: none; color: var(--link); font-weight: 500; }
 button.link:hover { text-decoration: underline; }

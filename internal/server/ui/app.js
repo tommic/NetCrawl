@@ -23,7 +23,7 @@ const pages = {
   services: ["Dienste", "Welche Software in welcher Version auf welchen Geräten läuft."],
   networks: ["Netze & Crawler", "Welche Netze wie oft geprüft werden und welche Crawler das übernehmen."],
   settings: ["Benachrichtigungen", "Änderungen per Discord melden."],
-  admin: ["Administration", "Einzelne Jobs, Job-Verlauf und Audit-Log."],
+  admin: ["Administration", "Export für KI-Agenten, einzelne Jobs, Job-Verlauf und Audit-Log."],
 };
 let installer = false;
 
@@ -153,7 +153,7 @@ async function refresh() {
       case "hosts": return renderHosts();
       case "services": return renderServices();
       case "networks": renderCrawlers(crawlers); await renderNetworks(); return renderPublicURL();
-      case "admin": await renderJobs(); return renderAudit();
+      case "admin": await renderExportTokens(); await renderJobs(); return renderAudit();
       case "settings": return renderNotify(false);
     }
   } catch (e) {
@@ -819,6 +819,50 @@ async function renderNetworks() {
   if (!networks.length) emptyRow(tbody, 9, "Noch kein Netz angelegt.");
 }
 
+// ---- export tokens ----
+
+async function renderExportTokens() {
+  const tokens = await api("GET", "/api/v1/admin/export-tokens");
+  const tbody = $("#export-tokens");
+  tbody.replaceChildren();
+  for (const t of tokens) {
+    const tr = document.createElement("tr");
+    cell(tr, t.name, "strong");
+    cell(tr, fmt(t.created_at) + " · " + t.created_by);
+    cell(tr, t.last_used_at ? fmt(t.last_used_at) : "noch nie");
+    const del = el("button", "Löschen", "ghost small");
+    del.type = "button";
+    del.addEventListener("click", async () => {
+      if (!confirm(`Lese-Token „${t.name}“ löschen? Ein Agent damit bekommt danach keinen Export mehr.`)) return;
+      try {
+        await api("DELETE", `/api/v1/admin/export-tokens/${t.id}`, {});
+        await renderExportTokens();
+      } catch (e) { message("#export-token-msg", "Fehler: " + e.message, true); }
+    });
+    cell(tr, "").appendChild(del);
+    tbody.appendChild(tr);
+  }
+  if (!tokens.length) emptyRow(tbody, 4, "Noch kein Lese-Token – ohne Token geht der Export nur angemeldet im Browser.");
+}
+
+async function createExportToken(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  try {
+    const t = await api("POST", "/api/v1/admin/export-tokens", { name: f.name.value.trim() });
+    const url = location.origin + "/api/v1/export.txt";
+    $("#export-token-value").textContent = t.token;
+    $("#export-token-curl").textContent = `curl -fsS -H 'Authorization: Bearer ${t.token}' ${url}`;
+    $("#export-token-url").textContent = `${url}?token=${t.token}`;
+    $("#export-token-new").hidden = false;
+    $("#export-token-msg").hidden = true;
+    f.reset();
+    await renderExportTokens();
+  } catch (e) {
+    message("#export-token-msg", "Nicht erzeugt: " + e.message, true);
+  }
+}
+
 function jobStatus(j) {
   if (j.expired) return ["abgelaufen", "status-expired"];
   return ({ pending: ["wartet", "status-pending"], delivered: ["beim Crawler", "status-delivered"], completed: ["fertig", "status-completed"] })[j.status] || [j.status, ""];
@@ -1060,6 +1104,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
   setupHostDialog();
   setupNetworkDialog();
+  $("#export-token-form").addEventListener("submit", createExportToken);
   $("#theme-switch").addEventListener("click", () => {
     const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     applyTheme(theme);
