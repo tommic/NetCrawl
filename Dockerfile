@@ -20,9 +20,13 @@ RUN for arch in amd64 arm64; do \
 
 # The agent needs to see the network it scans, so run it with
 # network_mode: host (see deploy/testenv).
-FROM gcr.io/distroless/static-debian12:nonroot AS agent
+# The agent image carries nmap for service/version detection (nmap -sV,
+# unprivileged connect scan); without nmap the agent uses built-in checks.
+FROM debian:12-slim AS agent
+RUN apt-get update && apt-get install -y --no-install-recommends nmap ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/netcrawl-agent /usr/local/bin/netcrawl-agent
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/netcrawl-agent"]
 CMD ["--config", "/data/agent.json"]
 

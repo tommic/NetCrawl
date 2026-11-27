@@ -22,6 +22,7 @@ import (
 	"netcrawler/internal/ports"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/result"
+	"netcrawler/internal/scanner/probe"
 	"netcrawler/internal/scanner/tcp"
 	"netcrawler/internal/scope"
 	"netcrawler/internal/tlspin"
@@ -52,6 +53,9 @@ type Agent struct {
 	Now func() time.Time
 	// Logf receives log lines.
 	Logf func(format string, args ...any)
+	// Services identifies the services on open ports (address -> ports).
+	// Default: nmap -sV if installed, else the built-in checks.
+	Services func(ctx context.Context, hosts map[string][]int) map[string]map[int]probe.Service
 	// interval overrides the polling interval (tests only).
 	interval time.Duration
 }
@@ -84,6 +88,9 @@ func New(cfg *Config) (*Agent, error) {
 		HTTP:  client,
 		Now:   time.Now,
 		Logf:  func(string, ...any) {},
+		Services: func(ctx context.Context, hosts map[string][]int) map[string]map[int]probe.Service {
+			return probe.Services(ctx, hosts, probe.FindNmap(), serviceTimeout, maxServiceConcurrency)
+		},
 	}, nil
 }
 
@@ -375,6 +382,9 @@ func (a *Agent) scan(ctx context.Context, job *protocol.Job) (protocol.Result, [
 		res.Networks = append(res.Networks, r)
 		return nil
 	})
+	if err == nil && job.Services && !a.cfg.NoServiceDetection && a.Services != nil {
+		a.addServices(ctx, &res)
+	}
 	res.Finished = a.Now().UTC()
 	return res, targets, err
 }
@@ -398,4 +408,46 @@ func (a *Agent) submit(ctx context.Context, job *protocol.Job, token []byte, res
 		return resp.StatusCode, fmt.Errorf("submit result: server answered %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return resp.StatusCode, nil
+}
+
+// Service detection limits: per connection, and parallel connections.
+const (
+	serviceTimeout        = 2 * time.Second
+	maxServiceConcurrency = 32
+)
+
+// addServices identifies the services behind the open ports of res and
+// adds them to the port details. Only ports the scan found open are
+// contacted, so detection stays inside the job's targets and ports.
+func (a *Agent) addServices(ctx context.Context, res *protocol.Result) {
+	open := map[string][]int{}
+	for _, n := range res.Networks {
+		for ip, h := range n.Hosts {
+			if len(h.Ports) > 0 {
+				open[ip] = h.Ports
+			}
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	method := "built-in checks"
+	if probe.FindNmap() != "" {
+		method = "nmap -sV"
+	}
+	a.Logf("[INFO] Service detection on %d host(s) (%s)", len(open), method)
+	found := a.Services(ctx, open)
+	for i := range res.Networks {
+		for ip, h := range res.Networks[i].Hosts {
+			for port, s := range found[ip] {
+				if h.Details == nil {
+					h.Details = map[int]result.PortInfo{}
+				}
+				d := h.Details[port]
+				d.Service, d.Product, d.ServiceVersion, d.ServiceExtra, d.ServiceMethod = s.Name, s.Product, s.Version, s.Extra, s.Method
+				h.Details[port] = d
+			}
+			res.Networks[i].Hosts[ip] = h
+		}
+	}
 }

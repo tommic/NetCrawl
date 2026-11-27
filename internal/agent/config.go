@@ -46,6 +46,10 @@ type Config struct {
 	// ReverseDNS allows PTR lookups for found hosts when a job asks for
 	// them. Lookups contact the configured DNS resolver.
 	ReverseDNS bool `json:"reverse_dns"`
+	// NoServiceDetection turns off service/version detection on open
+	// ports (nmap -sV if installed, else banner/HTTP/TLS checks), even if
+	// a job asks for it.
+	NoServiceDetection bool `json:"no_service_detection,omitempty"`
 
 	secret  []byte
 	baseDir string

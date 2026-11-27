@@ -42,6 +42,8 @@ type NetworkView struct {
 	OfflineInfoHours         int        `json:"offline_info_hours"`
 	OfflineWarnHours         int        `json:"offline_warn_hours"`
 	OfflineCriticalMinutes   int        `json:"offline_critical_minutes"`
+	ServiceIntervalMinutes   int        `json:"service_interval_minutes"`
+	LastServicesAt           *time.Time `json:"last_services_at,omitempty"`
 	ReverseDNS               bool       `json:"reverse_dns"`
 	Enabled                  bool       `json:"enabled"`
 	CreatedAt                time.Time  `json:"created_at"`
@@ -65,6 +67,8 @@ func networkView(n store.Network, hosts []store.Host) NetworkView {
 		OfflineInfoHours:         int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:         int(n.OfflineWarnAfter.Hours()),
 		OfflineCriticalMinutes:   int(n.OfflineCriticalAfter.Minutes()),
+		ServiceIntervalMinutes:   int(n.ServiceInterval.Minutes()),
+		LastServicesAt:           n.LastServicesAt,
 		ReverseDNS:               n.ReverseDNS, Enabled: n.Enabled, CreatedAt: n.CreatedAt,
 		LastDiscoveryAt: n.LastDiscoveryAt, LastPortscanAt: n.LastPortscanAt,
 		DiscoveryDoneAt: n.DiscoveryDoneAt, PortscanDoneAt: n.PortscanDoneAt, BaselineDone: n.BaselineDone,
@@ -208,9 +212,20 @@ type HostView struct {
 
 // PortView is an open port of a host.
 type PortView struct {
-	Port      int       `json:"port"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
+	Port      int          `json:"port"`
+	FirstSeen time.Time    `json:"first_seen"`
+	LastSeen  time.Time    `json:"last_seen"`
+	Service   *ServiceView `json:"service,omitempty"`
+}
+
+// ServiceView is the identified service on a port.
+type ServiceView struct {
+	Name    string     `json:"name"`
+	Product string     `json:"product"`
+	Version string     `json:"version"`
+	Extra   string     `json:"extra"`
+	Method  string     `json:"method"`
+	SeenAt  *time.Time `json:"seen_at,omitempty"`
 }
 
 func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +243,11 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 			PortsScannedAt: h.PortsScannedAt, Ports: []PortView{},
 		}
 		for _, p := range h.Ports {
-			v.Ports = append(v.Ports, PortView{p.Port, p.FirstSeen, p.LastSeen})
+			pv := PortView{Port: p.Port, FirstSeen: p.FirstSeen, LastSeen: p.LastSeen}
+			if sv := p.Service; sv.Name != "" {
+				pv.Service = &ServiceView{sv.Name, sv.Product, sv.Version, sv.Extra, sv.Method, sv.SeenAt}
+			}
+			v.Ports = append(v.Ports, pv)
 		}
 		out = append(out, v)
 	}

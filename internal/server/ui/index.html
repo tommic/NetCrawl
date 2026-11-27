@@ -15,6 +15,7 @@
     <button data-tab="overview" class="tab active"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Übersicht</span></button>
     <button data-tab="events" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span>Ereignisse</span> <span id="badge" class="badge" hidden></span></button>
     <button data-tab="hosts" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><span>Inventar</span></button>
+    <button data-tab="services" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Dienste</span></button>
     <button data-tab="networks" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/></svg><span>Netze &amp; Crawler</span></button>
     <button data-tab="settings" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H8l-4 4z"/></svg><span>Benachrichtigungen</span></button>
     <button data-tab="admin" class="tab"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Administration</span></button>
@@ -126,6 +127,30 @@
       </div>
     </div>
 
+    <div class="panel" data-panel="services" hidden>
+      <div class="card">
+        <div class="title-row">
+          <h2>Software im Netz</h2>
+          <div class="row">
+            <input id="svc-filter" type="search" placeholder="Suchen, z. B. OpenSSH" aria-label="Dienste filtern">
+            <select id="svc-network" aria-label="Netz"><option value="0">Alle Netze</option></select>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Software</th><th>Dienst</th><th>Versionen</th><th>Geräte</th></tr></thead>
+          <tbody id="svc-summary"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Alle Dienste</h2>
+        <table>
+          <thead><tr><th>Software</th><th>Version</th><th>Dienst</th><th>Gerät</th><th>Port</th><th>Erkannt</th></tr></thead>
+          <tbody id="services"></tbody>
+        </table>
+        <p class="hint">Erkannt beim Portscan: mit <code>nmap -sV</code>, wenn nmap auf dem Crawler installiert ist, sonst über Banner, HTTP-Header und TLS. Ändert sich Software oder Version, gibt es eine Meldung.</p>
+      </div>
+    </div>
+
     <div class="panel" data-panel="networks" hidden>
         <dialog id="network-dialog" class="drawer" aria-labelledby="network-title">
           <form id="network-edit" class="drawer-body">
@@ -152,6 +177,10 @@
               <div class="setting">
                 <div class="setting-text"><strong>Portscan</strong><span class="help">Gründlich: Prüft bei allen bekannten Geräten, welche Ports offen sind. Dauert länger. Mindestens alle 15&nbsp;Min.</span></div>
                 <span class="pair"><span class="pre">alle</span><input name="portscan" type="number" min="1" required aria-label="Portscan alle"><select name="portscan_unit" aria-label="Einheit Portscan"><option value="1">Min.</option><option value="60">Std.</option></select></span>
+              </div>
+              <div class="setting">
+                <div class="setting-text"><strong>Diensterkennung</strong><span class="help">Ermittelt beim Portscan zusätzlich Software und Version (z.&nbsp;B. „OpenSSH 9.6“). Langsamer und auffälliger als der reine Portscan – Versionen ändern sich selten, einmal am Tag reicht meist. Neue Geräte und „Portscan jetzt“ bekommen sie immer.</span></div>
+                <span class="pair"><span class="pre">alle</span><input name="services" type="number" min="1" required aria-label="Diensterkennung alle"><select name="services_unit" aria-label="Einheit Diensterkennung"><option value="1">Min.</option><option value="60">Std.</option></select></span>
               </div>
             </fieldset>
 

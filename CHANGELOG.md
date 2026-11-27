@@ -9,6 +9,22 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.10.0 – 2026-11-27
+
+- Dienste und Versionen (OwnDo #207): Beim Portscan erkennt der Crawler die Software hinter jedem offenen Port –
+  mit `nmap -sV`, wenn nmap installiert ist, sonst über Banner, HTTP-Header und TLS (OpenSSH, nginx, Apache,
+  Postfix, Exim, MySQL/MariaDB, FTP, Dovecot …). Gespeichert pro Port (Migration 0008).
+- Eigener Zeitplan pro Netz: „Diensterkennung alle …“ (Standard 24 Std., mindestens 15 Min.). Der Portscan kann
+  öfter laufen; nur der fällige Portscan erkennt auch die Dienste. Neue Geräte und „Portscan jetzt“ immer.
+  API: `service_interval_minutes`, Kommandozeile: `--service-interval` (Migration 0009).
+- Neue Seite **Dienste**: Software mit allen Versionen und Anzahl Geräte, darunter alle Dienste einzeln, mit Suche.
+  Im Host-Panel steht der Dienst neben jedem Port.
+- Meldungen: andere Version derselben Software → Info, andere Software auf einem Port → Warnung.
+  „Port neu offen“ nennt den erkannten Dienst.
+- Das Docker-Image des Crawlers basiert jetzt auf `debian:12-slim` und enthält nmap.
+- Crawler: `no_service_detection: true` in der `agent.json` schaltet die Erkennung ab. Protokoll: Job-Feld `services`.
+- Handy: Die Seite war breiter als der Bildschirm (Menüleiste drückte die Seite auf); jetzt scrollt nur die Menüleiste.
+
 ## 0.9.0 – 2026-11-27
 
 - Netz-Panel überarbeitet (OwnDo #188): Einstellungen in Gruppen (Netz, Zeitplan, Ports, Meldungen, Optionen),

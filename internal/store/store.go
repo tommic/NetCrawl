@@ -69,9 +69,11 @@ type Job struct {
 	// NetworkID is set for jobs the scheduler created for a network.
 	NetworkID *int64
 	// Kind is "ports" or "discovery" (protocol.JobKind*).
-	Kind        string
-	Deny        []string
-	ReverseDNS  bool
+	Kind       string
+	Deny       []string
+	ReverseDNS bool
+	// Services asks the crawler for service/version detection (port scans).
+	Services    bool
 	Targets     []string
 	Ports       []int
 	MaxHosts    int
@@ -128,13 +130,17 @@ type Network struct {
 	// An important host not seen for OfflineCriticalAfter raises a
 	// critical event (usually much sooner than the warning).
 	OfflineCriticalAfter time.Duration
-	ReverseDNS           bool
-	Enabled              bool
-	CreatedAt            time.Time
+	// ServiceInterval: how often a port scan also identifies the services
+	// (slower, e.g. nmap -sV). New hosts always get it right away.
+	ServiceInterval time.Duration
+	ReverseDNS      bool
+	Enabled         bool
+	CreatedAt       time.Time
 
 	// Scheduling state, written by UpdateNetworkSchedule.
 	LastDiscoveryAt *time.Time
 	LastPortscanAt  *time.Time
+	LastServicesAt  *time.Time
 
 	// Inventory state, written only via UpdateInventory.
 	DiscoveryDoneAt *time.Time
@@ -168,6 +174,31 @@ type HostPort struct {
 	Port      int
 	FirstSeen time.Time
 	LastSeen  time.Time
+	// Service is what runs behind the port, from the last port scan that
+	// could identify it (zero if never identified).
+	Service Service
+}
+
+// Service is an identified service on a port.
+type Service struct {
+	Name    string // protocol, e.g. "ssh", "http"
+	Product string // e.g. "OpenSSH"
+	Version string // e.g. "9.6p1"
+	Extra   string // e.g. "Ubuntu Linux; protocol 2.0"
+	Method  string // "nmap" or "banner"
+	// SeenAt is when it was last identified.
+	SeenAt *time.Time
+}
+
+// Label is "OpenSSH 9.6p1", or the protocol name if the product is unknown.
+func (s Service) Label() string {
+	if s.Product == "" {
+		return s.Name
+	}
+	if s.Version == "" {
+		return s.Product
+	}
+	return s.Product + " " + s.Version
 }
 
 // Event severities.
@@ -293,7 +324,7 @@ type Store interface {
 	// deny, ports, intervals, thresholds, reverse DNS, enabled).
 	UpdateNetworkSettings(ctx context.Context, n Network) error
 	// UpdateNetworkSchedule records when jobs were last created.
-	UpdateNetworkSchedule(ctx context.Context, id int64, lastDiscovery, lastPortscan *time.Time) error
+	UpdateNetworkSchedule(ctx context.Context, id int64, lastDiscovery, lastPortscan, lastServices *time.Time) error
 	// OpenNetworkJobs counts pending or delivered, unexpired jobs of a
 	// network and kind.
 	OpenNetworkJobs(ctx context.Context, networkID int64, kind string, now time.Time) (int, error)

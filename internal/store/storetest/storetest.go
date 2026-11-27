@@ -309,7 +309,7 @@ func addNetwork(t *testing.T, s store.Store, crawlerID, name string) store.Netwo
 		DiscoveryPorts: []int{22, 80}, ScanPorts: []int{22, 80, 443},
 		DiscoveryInterval: 30 * time.Minute, PortscanInterval: 24 * time.Hour,
 		OfflineInfoAfter: 24 * time.Hour, OfflineWarnAfter: 7 * 24 * time.Hour, OfflineCriticalAfter: time.Hour,
-		ReverseDNS: true, Enabled: true, CreatedAt: t0,
+		ServiceInterval: 24 * time.Hour, ReverseDNS: true, Enabled: true, CreatedAt: t0,
 	}
 	id, err := s.CreateNetwork(context.Background(), n)
 	mustNoErr(t, err)
@@ -323,11 +323,11 @@ func testNetworks(t *testing.T, s store.Store) {
 	n := addNetwork(t, s, "lab-1", "Heimnetz")
 	_, err := s.CreateNetwork(ctx, store.Network{CrawlerID: "lab-1", Name: "Heimnetz", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
-		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, CreatedAt: t0})
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, ServiceInterval: time.Minute, CreatedAt: t0})
 	wantErr(t, err, store.ErrExists)
 	_, err = s.CreateNetwork(ctx, store.Network{CrawlerID: "nope", Name: "x", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
-		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, CreatedAt: t0})
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, ServiceInterval: time.Minute, CreatedAt: t0})
 	wantErr(t, err, store.ErrNotFound)
 
 	got, err := s.Network(ctx, n.ID)
@@ -342,10 +342,11 @@ func testNetworks(t *testing.T, s store.Store) {
 	got.OfflineCriticalAfter = 15 * time.Minute
 	mustNoErr(t, s.UpdateNetworkSettings(ctx, got))
 	ld, lp := t0.Add(time.Minute), t0.Add(2*time.Minute)
-	mustNoErr(t, s.UpdateNetworkSchedule(ctx, n.ID, &ld, &lp))
+	mustNoErr(t, s.UpdateNetworkSchedule(ctx, n.ID, &ld, &lp, &lp))
 	got, _ = s.Network(ctx, n.ID)
 	if got.Name != "Büro" || got.Enabled || got.DiscoveryInterval != time.Hour || len(got.Deny) != 0 || got.OfflineCriticalAfter != 15*time.Minute ||
-		got.LastDiscoveryAt == nil || !got.LastDiscoveryAt.Equal(ld) || !got.LastPortscanAt.Equal(lp) {
+		got.LastDiscoveryAt == nil || !got.LastDiscoveryAt.Equal(ld) || !got.LastPortscanAt.Equal(lp) ||
+		got.LastServicesAt == nil || !got.LastServicesAt.Equal(lp) || got.ServiceInterval != 24*time.Hour {
 		t.Errorf("updated network = %+v", got)
 	}
 	got.ID = 999
@@ -415,7 +416,8 @@ func testInventory(t *testing.T, s store.Store) {
 		}
 		hosts["127.0.0.10"] = &store.Host{Hostname: "b", FirstSeen: t0, LastSeen: t0}
 		hosts["127.0.0.9"] = &store.Host{Hostname: "a", FirstSeen: t0, LastSeen: t0, PortsScannedAt: &scanned,
-			Ports: []store.HostPort{{Port: 443, FirstSeen: t0, LastSeen: t0}, {Port: 22, FirstSeen: t0, LastSeen: t0}}}
+			Ports: []store.HostPort{{Port: 443, FirstSeen: t0, LastSeen: t0}, {Port: 22, FirstSeen: t0, LastSeen: t0,
+				Service: store.Service{Name: "ssh", Product: "OpenSSH", Version: "9.6p1", Extra: "Ubuntu", Method: "nmap", SeenAt: &scanned}}}}
 		hosts["127.0.0.11"] = &store.Host{FirstSeen: t0, LastSeen: t0} // not in changed: not stored
 		net.BaselineDone = true
 		net.DiscoveryDoneAt = &scanned
@@ -435,6 +437,10 @@ func testInventory(t *testing.T, s store.Store) {
 	h := hosts[0]
 	if h.NetworkID != n.ID || h.Hostname != "a" || len(h.Ports) != 2 || h.Ports[0].Port != 22 || h.PortsScannedAt == nil {
 		t.Errorf("host = %+v", h)
+	}
+	if sv := h.Ports[0].Service; sv.Label() != "OpenSSH 9.6p1" || sv.Extra != "Ubuntu" || sv.Method != "nmap" ||
+		sv.SeenAt == nil || !sv.SeenAt.Equal(scanned) || h.Ports[1].Service.Name != "" {
+		t.Errorf("services = %+v", h.Ports)
 	}
 	got, _ := s.Network(ctx, n.ID)
 	if !got.BaselineDone || got.DiscoveryDoneAt == nil || !got.DiscoveryDoneAt.Equal(scanned) {

@@ -61,8 +61,13 @@ func resultOf(hosts map[string]string) protocol.Result {
 
 func (f *fixture) apply(kind string, at time.Time, hosts map[string]string) []store.Event {
 	f.t.Helper()
+	return f.applyResult(kind, at, resultOf(hosts))
+}
+
+func (f *fixture) applyResult(kind string, at time.Time, res protocol.Result) []store.Event {
+	f.t.Helper()
 	before, _ := f.st.ListEvents(context.Background(), store.EventFilter{IncludeBaseline: true})
-	if err := f.st.UpdateInventory(context.Background(), f.id, ApplyResult(kind, "job", resultOf(hosts), at)); err != nil {
+	if err := f.st.UpdateInventory(context.Background(), f.id, ApplyResult(kind, "job", res, at)); err != nil {
 		f.t.Fatal(err)
 	}
 	after, _ := f.st.ListEvents(context.Background(), store.EventFilter{IncludeBaseline: true})
@@ -225,5 +230,55 @@ func TestOfflineMeasuredAgainstDiscoveryRuns(t *testing.T) {
 	f.apply(protocol.JobKindPorts, t0.Add(10*24*time.Hour), map[string]string{})
 	if ev, _ := f.st.ListEvents(context.Background(), store.EventFilter{}); len(ev) != 0 {
 		t.Errorf("port scan raised offline events: %s", types(ev))
+	}
+}
+
+// withService adds a detected service to a port of a result.
+func withService(res protocol.Result, ip string, port int, name, product, version, method string) protocol.Result {
+	h := res.Networks[0].Hosts[ip]
+	if h.Details == nil {
+		h.Details = map[int]result.PortInfo{}
+	}
+	h.Details[port] = result.PortInfo{Service: name, Product: product, ServiceVersion: version, ServiceMethod: method}
+	res.Networks[0].Hosts[ip] = h
+	return res
+}
+
+func TestServices(t *testing.T) {
+	f := newFixture(t)
+	ports := protocol.JobKindPorts
+	f.apply(protocol.JobKindDiscovery, t0, map[string]string{"10.0.0.5": ":"})
+
+	// First port scan: services are stored, no events beyond the baseline.
+	res := withService(resultOf(map[string]string{"10.0.0.5": ":22,80"}), "10.0.0.5", 22, "ssh", "OpenSSH", "9.6p1", "nmap")
+	res = withService(res, "10.0.0.5", 80, "http", "nginx", "1.24.0", "nmap")
+	expect(t, f.applyResult(ports, t0.Add(time.Hour), res), "ports.baseline/info@10.0.0.5(baseline)")
+	if s := f.host("10.0.0.5").Ports[0].Service; s.Label() != "OpenSSH 9.6p1" || s.SeenAt == nil || s.Method != "nmap" {
+		t.Fatalf("service = %+v", s)
+	}
+
+	// Version update: info. Other product: warning. No result: kept.
+	res = withService(resultOf(map[string]string{"10.0.0.5": ":22,80"}), "10.0.0.5", 22, "ssh", "OpenSSH", "9.7p1", "nmap")
+	res = withService(res, "10.0.0.5", 80, "http", "Apache httpd", "2.4.58", "nmap")
+	ev := f.applyResult(ports, t0.Add(2*time.Hour), res)
+	expect(t, ev, "service.changed/info@10.0.0.5 service.changed/warning@10.0.0.5")
+	if !strings.Contains(ev[0].Message, "OpenSSH 9.6p1 → OpenSSH 9.7p1") {
+		t.Errorf("message %q", ev[0].Message)
+	}
+	expect(t, f.apply(ports, t0.Add(3*time.Hour), map[string]string{"10.0.0.5": ":22,80"}), "")
+	if s := f.host("10.0.0.5").Ports[0].Service; s.Version != "9.7p1" {
+		t.Errorf("service without new result = %+v", s)
+	}
+
+	// Found another way (built-in check, other wording): stored, no event.
+	res = withService(resultOf(map[string]string{"10.0.0.5": ":22,80"}), "10.0.0.5", 22, "ssh", "OpenSSH", "9.7p1 Debian", "banner")
+	expect(t, f.applyResult(ports, t0.Add(4*time.Hour), res), "")
+
+	// A new port names its service in the port.opened event.
+	res = withService(resultOf(map[string]string{"10.0.0.5": ":22,80,3306"}), "10.0.0.5", 3306, "mysql", "MySQL", "8.0.36", "banner")
+	ev = f.applyResult(ports, t0.Add(5*time.Hour), res)
+	expect(t, ev, "port.opened/warning@10.0.0.5")
+	if !strings.HasSuffix(ev[0].Message, "(MySQL 8.0.36)") {
+		t.Errorf("message %q", ev[0].Message)
 	}
 }

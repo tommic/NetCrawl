@@ -288,10 +288,10 @@ func (s *Store) CreateJob(ctx context.Context, j store.Job) error {
 	}
 	_, err := s.pool.Exec(ctx, `INSERT INTO jobs
 		(id, crawler_id, targets, ports, max_hosts, timeout_ms, result_token, status, created_by, created_at, expires_at,
-		 network_id, kind, deny, reverse_dns)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		 network_id, kind, deny, reverse_dns, services)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
 		j.ID, j.CrawlerID, j.Targets, j.Ports, j.MaxHosts, j.TimeoutMs, j.ResultToken, j.Status, j.CreatedBy, j.CreatedAt, j.ExpiresAt,
-		j.NetworkID, j.Kind, j.Deny, j.ReverseDNS)
+		j.NetworkID, j.Kind, j.Deny, j.ReverseDNS, j.Services)
 	switch {
 	case isUniqueViolation(err):
 		return store.ErrExists
@@ -302,13 +302,13 @@ func (s *Store) CreateJob(ctx context.Context, j store.Job) error {
 }
 
 const jobColumns = `id::text, crawler_id, targets, ports, max_hosts, timeout_ms, result_token, status, created_by,
-	created_at, expires_at, delivered_at, completed_at, network_id, kind, deny, reverse_dns`
+	created_at, expires_at, delivered_at, completed_at, network_id, kind, deny, reverse_dns, services`
 
 func scanJob(row pgx.Row) (store.Job, error) {
 	var j store.Job
 	var ports []int32
 	err := row.Scan(&j.ID, &j.CrawlerID, &j.Targets, &ports, &j.MaxHosts, &j.TimeoutMs, &j.ResultToken, &j.Status,
-		&j.CreatedBy, &j.CreatedAt, &j.ExpiresAt, &j.DeliveredAt, &j.CompletedAt, &j.NetworkID, &j.Kind, &j.Deny, &j.ReverseDNS)
+		&j.CreatedBy, &j.CreatedAt, &j.ExpiresAt, &j.DeliveredAt, &j.CompletedAt, &j.NetworkID, &j.Kind, &j.Deny, &j.ReverseDNS, &j.Services)
 	for _, p := range ports {
 		j.Ports = append(j.Ports, int(p))
 	}

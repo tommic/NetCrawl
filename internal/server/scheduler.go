@@ -80,7 +80,8 @@ func (s *Server) scanNewHosts(ctx context.Context, networkID int64, ips []string
 	for i, ip := range ips {
 		targets[i] = ip + "/32"
 	}
-	if _, err := s.networkJob(ctx, n, protocol.JobKindPorts, targets, n.ScanPorts, portscanJobTTL, s.now()); err != nil {
+	// New hosts get their services identified right away as well.
+	if _, err := s.networkJob(ctx, n, protocol.JobKindPorts, targets, n.ScanPorts, true, portscanJobTTL, s.now()); err != nil {
 		return fmt.Errorf("port scan job for new hosts: %w", err)
 	}
 	return nil
@@ -133,7 +134,7 @@ func due(last *time.Time, interval time.Duration, now time.Time) bool {
 }
 
 func (s *Server) scheduleNetwork(ctx context.Context, n store.Network, now time.Time) error {
-	lastDisc, lastScan := n.LastDiscoveryAt, n.LastPortscanAt
+	lastDisc, lastScan, lastSvc := n.LastDiscoveryAt, n.LastPortscanAt, n.LastServicesAt
 	created := false
 
 	if due(lastDisc, n.DiscoveryInterval, now) {
@@ -142,7 +143,7 @@ func (s *Server) scheduleNetwork(ctx context.Context, n store.Network, now time.
 			return err
 		}
 		if open == 0 {
-			if _, err := s.networkJob(ctx, n, protocol.JobKindDiscovery, n.Targets, n.DiscoveryPorts, discoveryJobTTL, now); err != nil {
+			if _, err := s.networkJob(ctx, n, protocol.JobKindDiscovery, n.Targets, n.DiscoveryPorts, false, discoveryJobTTL, now); err != nil {
 				return fmt.Errorf("discovery job: %w", err)
 			}
 			t := now
@@ -168,23 +169,28 @@ func (s *Server) scheduleNetwork(ctx context.Context, n store.Network, now time.
 					targets = append(targets, h.IP+"/32")
 				}
 			}
+			// Service detection rides along when it is due.
+			services := due(lastSvc, n.ServiceInterval, now)
 			if len(targets) > 0 {
-				if _, err := s.networkJob(ctx, n, protocol.JobKindPorts, targets, n.ScanPorts, portscanJobTTL, now); err != nil {
+				if _, err := s.networkJob(ctx, n, protocol.JobKindPorts, targets, n.ScanPorts, services, portscanJobTTL, now); err != nil {
 					return fmt.Errorf("port scan job: %w", err)
 				}
 			}
 			t := now
 			lastScan, created = &t, true
+			if services {
+				lastSvc = &t
+			}
 		}
 	}
 
 	if created {
-		return s.st.UpdateNetworkSchedule(ctx, n.ID, lastDisc, lastScan)
+		return s.st.UpdateNetworkSchedule(ctx, n.ID, lastDisc, lastScan, lastSvc)
 	}
 	return nil
 }
 
-func (s *Server) networkJob(ctx context.Context, n store.Network, kind string, targets []string, ports []int, ttl time.Duration, now time.Time) (store.Job, error) {
+func (s *Server) networkJob(ctx context.Context, n store.Network, kind string, targets []string, ports []int, services bool, ttl time.Duration, now time.Time) (store.Job, error) {
 	c, err := s.st.Crawler(ctx, n.CrawlerID)
 	if err != nil {
 		return store.Job{}, err
@@ -192,7 +198,7 @@ func (s *Server) networkJob(ctx context.Context, n store.Network, kind string, t
 	id := n.ID
 	return CreateJob(ctx, s.st, scheduledActor, JobRequest{
 		CrawlerID: n.CrawlerID, Targets: targets, Deny: n.Deny, Ports: ports, MaxHosts: c.MaxHosts,
-		TTLSeconds: int(ttl.Seconds()), Kind: kind, ReverseDNS: n.ReverseDNS, NetworkID: &id,
+		TTLSeconds: int(ttl.Seconds()), Kind: kind, ReverseDNS: n.ReverseDNS, Services: services, NetworkID: &id,
 	}, now)
 }
 
@@ -203,7 +209,7 @@ func (s *Server) ScanNow(ctx context.Context, actor string, id int64, kind strin
 	if err != nil {
 		return err
 	}
-	lastDisc, lastScan := n.LastDiscoveryAt, n.LastPortscanAt
+	lastDisc, lastScan, lastSvc := n.LastDiscoveryAt, n.LastPortscanAt, n.LastServicesAt
 	switch kind {
 	case protocol.JobKindDiscovery:
 		lastDisc = nil
@@ -211,17 +217,17 @@ func (s *Server) ScanNow(ctx context.Context, actor string, id int64, kind strin
 		if n.DiscoveryDoneAt == nil {
 			return invalid("no discovery result yet: run a discovery first")
 		}
-		lastScan = nil
+		lastScan, lastSvc = nil, nil // "port scan now" includes the services
 	default:
 		return invalid("kind must be %q or %q", protocol.JobKindDiscovery, protocol.JobKindPorts)
 	}
 	if !n.Enabled {
 		return invalid("network %q is disabled", n.Name)
 	}
-	if err := s.st.UpdateNetworkSchedule(ctx, id, lastDisc, lastScan); err != nil {
+	if err := s.st.UpdateNetworkSchedule(ctx, id, lastDisc, lastScan, lastSvc); err != nil {
 		return err
 	}
 	_ = s.st.Audit(ctx, actor, "network.scan_now", map[string]any{"id": id, "kind": kind})
-	n.LastDiscoveryAt, n.LastPortscanAt = lastDisc, lastScan
+	n.LastDiscoveryAt, n.LastPortscanAt, n.LastServicesAt = lastDisc, lastScan, lastSvc
 	return s.scheduleNetwork(ctx, n, s.now())
 }

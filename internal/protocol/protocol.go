@@ -78,6 +78,9 @@ type Job struct {
 	// ReverseDNS asks for PTR lookups of found hosts. The agent only does
 	// them if its local config allows it.
 	ReverseDNS bool `json:"reverse_dns,omitempty"`
+	// Services asks for service/version detection on the open ports found
+	// (port scan jobs). The agent only does it if its local config allows it.
+	Services bool `json:"services,omitempty"`
 	// ResultToken (base64url) is the HMAC key for this job's result. It is
 	// valid for exactly one accepted result.
 	ResultToken string `json:"result_token"`

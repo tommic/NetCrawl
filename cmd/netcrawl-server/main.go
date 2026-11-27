@@ -58,10 +58,10 @@ Usage:
   netcrawl-server job show JOB_ID
   netcrawl-server network add --crawler ID --name NAME --target CIDR[,..] [--deny IP,..] [--discovery-ports P,..]
                               [--scan-ports P,.. | --scan-preset top100] [--discovery-interval 30m] [--portscan-interval 24h]
-                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--no-reverse-dns]
+                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--service-interval 24h] [--no-reverse-dns]
   netcrawl-server network update --id N [--name NAME] [--target ..] [--deny ..] [--discovery-ports ..]
                               [--scan-ports P,.. | --scan-preset NAME] [--discovery-interval 30m] [--portscan-interval 30m]
-                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--reverse-dns=false] [--enabled=false]
+                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--service-interval 24h] [--reverse-dns=false] [--enabled=false]
                               (changes only the given settings; --deny "" removes all exclusions)
   netcrawl-server network list
   netcrawl-server network scan --id N [--kind discovery|ports]
@@ -347,6 +347,7 @@ func run(args []string) error {
 		scanPreset := fs.String("scan-preset", "", "port preset for the port scan (default top100)")
 		discEvery := fs.Duration("discovery-interval", server.DefaultDiscoveryMinutes*time.Minute, "host discovery interval")
 		scanEvery := fs.Duration("portscan-interval", server.DefaultPortscanHours*time.Hour, "port scan interval")
+		svcEvery := fs.Duration("service-interval", server.DefaultServiceIntervalMinutes*time.Minute, "service/version detection interval (with a port scan)")
 		offInfo := fs.Duration("offline-info", server.DefaultOfflineInfoHours*time.Hour, "info event when a host is gone this long")
 		offWarn := fs.Duration("offline-warn", server.DefaultOfflineWarnHours*time.Hour, "warning event when a host is gone this long")
 		offCrit := fs.Duration("offline-critical", server.DefaultOfflineCriticalMinutes*time.Minute, "critical event when an important host is gone this long")
@@ -363,6 +364,10 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
+		svc, err := wholeMinutes("service-interval", *svcEvery)
+		if err != nil {
+			return err
+		}
 		st, err := open()
 		if err != nil {
 			return err
@@ -374,7 +379,7 @@ func run(args []string) error {
 			DiscoveryPorts: dp, ScanPorts: sp, ScanPreset: *scanPreset,
 			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalMinutes: int(scanEvery.Minutes()),
 			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()),
-			OfflineCriticalMinutes: crit, ReverseDNS: &rdns,
+			OfflineCriticalMinutes: crit, ServiceIntervalMinutes: svc, ReverseDNS: &rdns,
 		}, time.Now())
 		if err != nil {
 			return err
@@ -394,6 +399,7 @@ func run(args []string) error {
 		scanPreset := fs.String("scan-preset", "", "port preset for the port scan")
 		discEvery := fs.Duration("discovery-interval", 0, "host discovery interval")
 		scanEvery := fs.Duration("portscan-interval", 0, "port scan interval (at least 15m)")
+		svcEvery := fs.Duration("service-interval", 0, "service/version detection interval (at least 15m)")
 		offInfo := fs.Duration("offline-info", 0, "info event when a host is gone this long")
 		offWarn := fs.Duration("offline-warn", 0, "warning event when a host is gone this long")
 		offCrit := fs.Duration("offline-critical", 0, "critical event when an important host is gone this long")
@@ -436,6 +442,11 @@ func run(args []string) error {
 		}
 		if set["discovery-interval"] {
 			req.DiscoveryIntervalMinute = int(discEvery.Minutes())
+		}
+		if set["service-interval"] {
+			if req.ServiceIntervalMinutes, err = wholeMinutes("service-interval", *svcEvery); err != nil {
+				return err
+			}
 		}
 		if set["portscan-interval"] {
 			req.PortscanIntervalMinutes = int(scanEvery.Minutes())

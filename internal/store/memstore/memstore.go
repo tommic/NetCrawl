@@ -464,13 +464,13 @@ func (s *Store) UpdateNetworkSettings(_ context.Context, n store.Network) error 
 	cur.DiscoveryPorts, cur.ScanPorts = slices.Clone(n.DiscoveryPorts), slices.Clone(n.ScanPorts)
 	cur.DiscoveryInterval, cur.PortscanInterval = n.DiscoveryInterval, n.PortscanInterval
 	cur.OfflineInfoAfter, cur.OfflineWarnAfter = n.OfflineInfoAfter, n.OfflineWarnAfter
-	cur.OfflineCriticalAfter = n.OfflineCriticalAfter
+	cur.OfflineCriticalAfter, cur.ServiceInterval = n.OfflineCriticalAfter, n.ServiceInterval
 	cur.ReverseDNS, cur.Enabled = n.ReverseDNS, n.Enabled
 	s.networks[n.ID] = cur
 	return nil
 }
 
-func (s *Store) UpdateNetworkSchedule(_ context.Context, id int64, lastDiscovery, lastPortscan *time.Time) error {
+func (s *Store) UpdateNetworkSchedule(_ context.Context, id int64, lastDiscovery, lastPortscan, lastServices *time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n, ok := s.networks[id]
@@ -478,6 +478,7 @@ func (s *Store) UpdateNetworkSchedule(_ context.Context, id int64, lastDiscovery
 		return store.ErrNotFound
 	}
 	n.LastDiscoveryAt, n.LastPortscanAt = cloneTime(lastDiscovery), cloneTime(lastPortscan)
+	n.LastServicesAt = cloneTime(lastServices)
 	s.networks[id] = n
 	return nil
 }
