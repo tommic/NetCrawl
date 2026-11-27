@@ -611,12 +611,15 @@ function renderServiceTables() {
   else renderServicesByCategory(box, rows);
 }
 
-function group(title, sub) {
+// group is a collapsible block with a header bar: title, a short note
+// and the number of services as a badge.
+function group(title, note, count) {
   const d = document.createElement("details");
   d.className = "svc-group";
   d.open = true;
   const s = document.createElement("summary");
-  s.append(el("span", title, "svc-group-title"), el("span", sub, "muted small"));
+  s.append(el("span", title, "svc-group-title"), el("span", note, "svc-group-note"),
+    el("span", `${count} ${count === 1 ? "Dienst" : "Dienste"}`, "svc-group-count"));
   d.appendChild(s);
   return d;
 }
@@ -650,7 +653,7 @@ function renderServicesByCategory(box, rows) {
     const list = [...c.software.entries()].sort(([, a], [, b]) =>
       !a.sv.product - !b.sv.product || (a.sv.product || a.sv.name).localeCompare(b.sv.product || b.sv.name));
     const ports = list.reduce((n, [, g]) => n + g.rows.length, 0);
-    const d = group(c.label, ` · ${list.length} Software, ${ports} ${ports === 1 ? "Dienst" : "Dienste"}`);
+    const d = group(c.label, `${list.length} Software`, ports);
     const [t, tbody] = table(["Software", "Version", "Dienst", "Gerät", "Port", "Erkannt"]);
     t.classList.add("svc-tree");
     for (const [k, g] of list) {
@@ -712,7 +715,7 @@ function renderServicesByDevice(box, rows) {
   }
   for (const { h, rows: list } of [...devices.values()].sort((a, b) => ipCompare(a.h.ip, b.h.ip))) {
     const name = h.custom_name || h.hostname;
-    const d = group(h.ip + (name ? " " + name : ""), ` · ${networkName(h.network_id)} · ${list.length} ${list.length === 1 ? "Dienst" : "Dienste"}`);
+    const d = group(h.ip + (name ? " " + name : ""), networkName(h.network_id), list.length);
     const [t, tbody] = table(["Port", "Kategorie", "Software", "Version", "Dienst"]);
     for (const r of list.sort((a, b) => catRank(a.sv.category) - catRank(b.sv.category) || a.port - b.port)) {
       const tr = document.createElement("tr");

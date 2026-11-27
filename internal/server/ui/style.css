@@ -220,12 +220,19 @@ label.inline > span { display: grid; gap: 2px; }
 .seg-btn { min-height: 36px; border-radius: 0; background: transparent; color: var(--fg-soft); font-weight: 500; }
 .seg-btn + .seg-btn { border-left: 1px solid var(--line-strong); }
 .seg-btn.active { background: var(--nav-active); color: var(--fg); }
-details.svc-group { border-top: 1px solid var(--line); padding: 10px 0 4px; }
-details.svc-group > summary { display: flex; align-items: baseline; gap: 2px; padding: 4px 0 8px; list-style: none; }
+/* Each category (or device) is its own block with a header bar. */
+details.svc-group { margin: 0 0 18px; border: 1px solid var(--line-strong); border-radius: 10px; overflow-x: auto; }
+details.svc-group > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; list-style: none; cursor: pointer;
+  background: var(--nav-active); border-left: 4px solid var(--link); }
 details.svc-group > summary::-webkit-details-marker { display: none; }
-details.svc-group > summary::before { content: "▾"; color: var(--muted); width: 1.2em; }
+details.svc-group > summary::before { content: "▾"; color: var(--link); width: 1em; }
 details.svc-group:not([open]) > summary::before { content: "▸"; }
-.svc-group-title { font-weight: 600; font-size: 15px; }
+details.svc-group:not([open]) > summary { border-bottom: 0; }
+details.svc-group > table { margin: 0; }
+details.svc-group > table th:first-child, details.svc-group > table td:first-child { padding-left: 14px; }
+.svc-group-title { font-weight: 700; font-size: 16px; color: var(--fg); }
+.svc-group-note { color: var(--fg-soft); font-size: 13px; }
+.svc-group-count { margin-left: auto; padding: 2px 10px; border-radius: 999px; background: var(--card); border: 1px solid var(--line-strong); font-size: 12px; font-weight: 600; color: var(--fg-soft); white-space: nowrap; }
 .caret { display: inline-block; width: 1.3em; color: var(--muted); }
 tr.svc-parent td { font-weight: 500; }
 tr.svc-child td { background: var(--field); }
