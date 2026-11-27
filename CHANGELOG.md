@@ -9,6 +9,14 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.13.0 – 2026-11-27
+
+- Dienste gruppiert: Jeder Dienst gehört zu einer Kategorie (Web, Fernzugriff, Dateifreigabe, Datenbanken, Mail,
+  Netzdienste, Medien & Smart Home, Drucker, Sonstiges) – nach Software, Dienstname oder Port.
+- Seite „Dienste“: Filter-Chips mit Anzahl, Software je Kategorie aufklappbar (Klick zeigt die Geräte),
+  Schalter „Nach Kategorie | Nach Gerät“. Host-Panel: Ports nach Kategorie sortiert, mit Etikett.
+- Export für KI-Agenten: Software-Übersicht nach Kategorien gegliedert. API: `category`, `category_label` je Dienst.
+
 ## 0.12.0 – 2026-11-27
 
 - Export für KI-Agenten: das Inventar als Text (`GET /api/v1/export.txt`) – Netze, Geräte mit offenen Ports,

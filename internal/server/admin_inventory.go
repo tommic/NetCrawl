@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"netcrawler/internal/ports"
+	"netcrawler/internal/servicecat"
 	"netcrawler/internal/store"
 )
 
@@ -220,12 +221,16 @@ type PortView struct {
 
 // ServiceView is the identified service on a port.
 type ServiceView struct {
-	Name    string     `json:"name"`
-	Product string     `json:"product"`
-	Version string     `json:"version"`
-	Extra   string     `json:"extra"`
-	Method  string     `json:"method"`
-	SeenAt  *time.Time `json:"seen_at,omitempty"`
+	// Category groups services (web, remote, files, …); CategoryLabel is
+	// its German name.
+	Category      string     `json:"category"`
+	CategoryLabel string     `json:"category_label"`
+	Name          string     `json:"name"`
+	Product       string     `json:"product"`
+	Version       string     `json:"version"`
+	Extra         string     `json:"extra"`
+	Method        string     `json:"method"`
+	SeenAt        *time.Time `json:"seen_at,omitempty"`
 }
 
 func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +250,9 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		for _, p := range h.Ports {
 			pv := PortView{Port: p.Port, FirstSeen: p.FirstSeen, LastSeen: p.LastSeen}
 			if sv := p.Service; sv.Name != "" {
-				pv.Service = &ServiceView{sv.Name, sv.Product, sv.Version, sv.Extra, sv.Method, sv.SeenAt}
+				cat := servicecat.Of(sv.Name, sv.Product, p.Port)
+				pv.Service = &ServiceView{Category: cat, CategoryLabel: servicecat.Labels[cat], Name: sv.Name, Product: sv.Product,
+					Version: sv.Version, Extra: sv.Extra, Method: sv.Method, SeenAt: sv.SeenAt}
 			}
 			v.Ports = append(v.Ports, pv)
 		}

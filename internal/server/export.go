@@ -12,6 +12,7 @@ import (
 
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/result"
+	"netcrawler/internal/servicecat"
 	"netcrawler/internal/store"
 	"netcrawler/internal/version"
 )
@@ -231,7 +232,7 @@ func BuildExport(ctx context.Context, st store.Store, opt ExportOptions, now tim
 		fmt.Fprintf(&b, "  Letzte Host-Erkennung %s, letzter Portscan %s\n", opt2(n.DiscoveryDoneAt), opt2(n.PortscanDoneAt))
 	}
 
-	type swKey struct{ name, product, version string }
+	type swKey struct{ cat, name, product, version string }
 	software := map[swKey][]string{}
 	for _, n := range shown {
 		fmt.Fprintf(&b, "\n## Geräte in %s\n", n.Name)
@@ -279,7 +280,7 @@ func BuildExport(ctx context.Context, st store.Store, opt ExportOptions, now tim
 						if sv.Extra != "" {
 							desc += " (" + sv.Extra + ")"
 						}
-						key := swKey{sv.Name, sv.Product, sv.Version}
+						key := swKey{servicecat.Of(sv.Name, sv.Product, p.Port), sv.Name, sv.Product, sv.Version}
 						software[key] = append(software[key], h.IP+":"+strconv.Itoa(p.Port))
 					}
 					if desc == "" {
@@ -291,7 +292,7 @@ func BuildExport(ctx context.Context, st store.Store, opt ExportOptions, now tim
 		}
 	}
 
-	b.WriteString("\n## Software-Übersicht\n")
+	b.WriteString("\n## Software-Übersicht nach Kategorie\n")
 	if len(software) == 0 {
 		b.WriteString("(noch keine Dienste erkannt)\n")
 	}
@@ -299,8 +300,15 @@ func BuildExport(ctx context.Context, st store.Store, opt ExportOptions, now tim
 	for k := range software {
 		keys = append(keys, k)
 	}
+	rank := map[string]int{}
+	for i, c := range servicecat.Order {
+		rank[c] = i
+	}
 	sort.Slice(keys, func(i, j int) bool {
 		a, c := keys[i], keys[j]
+		if a.cat != c.cat {
+			return rank[a.cat] < rank[c.cat]
+		}
 		if (a.product == "") != (c.product == "") {
 			return a.product != ""
 		}
@@ -312,7 +320,12 @@ func BuildExport(ctx context.Context, st store.Store, opt ExportOptions, now tim
 		}
 		return a.name < c.name
 	})
+	lastCat := ""
 	for _, k := range keys {
+		if k.cat != lastCat {
+			fmt.Fprintf(&b, "### %s\n", servicecat.Labels[k.cat])
+			lastCat = k.cat
+		}
 		label := k.product
 		if label == "" {
 			label = "unbekannte Software"

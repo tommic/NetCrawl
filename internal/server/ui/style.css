@@ -211,6 +211,24 @@ label.inline > span { display: grid; gap: 2px; }
 .drawer-body > .detail-head { position: sticky; top: 0; z-index: 1; background: var(--card); margin: -20px -22px 0; padding: 20px 22px 12px; border-bottom: 1px solid var(--line); }
 .drawer-actions { position: sticky; bottom: 0; display: grid; gap: 10px; margin: 0 -22px -28px; padding: 14px 22px 18px; background: var(--card); border-top: 1px solid var(--line); }
 .unsaved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; border: 1px solid var(--k-amber-line); background: var(--k-amber); padding: 10px 12px; border-radius: 8px; }
+/* Services page: category chips, view switch, groups. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.chip { min-height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--fg-soft); font-weight: 500; font-size: 13px; }
+.chip:hover { background: var(--hover); }
+.chip.active { background: var(--nav-active); border-color: var(--link); color: var(--fg); }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.seg-btn { min-height: 36px; border-radius: 0; background: transparent; color: var(--fg-soft); font-weight: 500; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--line-strong); }
+.seg-btn.active { background: var(--nav-active); color: var(--fg); }
+details.svc-group { border-top: 1px solid var(--line); padding: 10px 0 4px; }
+details.svc-group > summary { display: flex; align-items: baseline; gap: 2px; padding: 4px 0 8px; list-style: none; }
+details.svc-group > summary::-webkit-details-marker { display: none; }
+details.svc-group > summary::before { content: "▾"; color: var(--muted); width: 1.2em; }
+details.svc-group:not([open]) > summary::before { content: "▸"; }
+.svc-group-title { font-weight: 600; font-size: 15px; }
+tr.svc-devices td { background: var(--field); padding: 10px 12px; }
+.device { display: inline-block; margin: 2px 14px 2px 0; white-space: nowrap; }
+.pill.cat { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--fg-soft); }
 .unsaved span { flex: 1 1 200px; color: var(--fg); }
 .unsaved button.small { margin: 0; }
 #host-detail .detail-cols { grid-template-columns: minmax(0, 1fr); }

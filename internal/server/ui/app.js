@@ -492,10 +492,13 @@ async function showHost(h) {
     for (const t of ["Port", "Dienst", "Offen seit"]) hr.appendChild(el("th", t));
     thead.appendChild(hr);
     const tbody = document.createElement("tbody");
-    for (const p of h.ports) {
+    const byCat = (p) => catRank(p.service ? p.service.category : "other");
+    for (const p of [...h.ports].sort((a, b) => byCat(a) - byCat(b) || a.port - b.port)) {
       const tr = document.createElement("tr");
       cell(tr, String(p.port), "mono");
-      cell(tr, "").appendChild(serviceLabel(p.service));
+      const svc = cell(tr, "");
+      svc.appendChild(serviceLabel(p.service));
+      if (p.service) svc.append(" ", el("span", p.service.category_label, "pill cat cat-" + p.service.category));
       cell(tr, fmt(p.first_seen));
       tbody.appendChild(tr);
     }
@@ -549,6 +552,13 @@ function serviceLabel(sv) {
 }
 
 let serviceRows = []; // one per host and port with a service
+let svcGroupBy = "category"; // or "device"
+let svcCategory = ""; // "" = all
+const svcOpen = new Set(); // expanded software rows (category view)
+
+// Category display order (the server assigns categories and labels).
+const svcOrder = ["web", "remote", "files", "database", "mail", "network", "media", "printer", "other"];
+const catRank = (c) => { const i = svcOrder.indexOf(c); return i < 0 ? svcOrder.length : i; };
 
 async function renderServices() {
   const hosts = await api("GET", `/api/v1/admin/hosts?network_id=${$("#svc-network").value}`);
@@ -558,54 +568,171 @@ async function renderServices() {
       if (p.service) serviceRows.push({ h, port: p.port, sv: p.service });
     }
   }
-  // Known software first (by name), then services without a product.
-  const key = (r) => (r.sv.product || r.sv.name).toLowerCase();
-  serviceRows.sort((a, b) => !a.sv.product - !b.sv.product || key(a).localeCompare(key(b)) || a.sv.version.localeCompare(b.sv.version, undefined, { numeric: true }) ||
-    a.h.ip.localeCompare(b.h.ip, undefined, { numeric: true }) || a.port - b.port);
   renderServiceTables();
 }
 
+function hostKey(h) { return h.network_id + "/" + h.ip; }
+function softwareKey(sv) { return sv.category + "\0" + (sv.product || "") + "\0" + sv.name; }
+const ipCompare = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+
 function renderServiceTables() {
   const q = $("#svc-filter").value.trim().toLowerCase();
-  const rows = serviceRows.filter((r) => !q || [r.sv.product, r.sv.version, r.sv.name, r.sv.extra, r.h.ip, r.h.hostname, r.h.custom_name]
+  const matching = serviceRows.filter((r) => !q || [r.sv.product, r.sv.version, r.sv.name, r.sv.extra, r.sv.category_label, r.h.ip, r.h.hostname, r.h.custom_name]
     .some((v) => (v || "").toLowerCase().includes(q)));
 
-  // Summary: one line per software, its versions with the number of ports.
-  const groups = new Map();
+  // Chips: one per category with services, with the number of services.
+  const counts = new Map();
+  const labels = new Map();
+  for (const r of matching) {
+    counts.set(r.sv.category, (counts.get(r.sv.category) || 0) + 1);
+    labels.set(r.sv.category, r.sv.category_label);
+  }
+  if (svcCategory && !counts.has(svcCategory)) svcCategory = "";
+  const chips = $("#svc-chips");
+  chips.replaceChildren();
+  const chip = (cat, text) => {
+    const b = el("button", text, "chip" + (svcCategory === cat ? " active" : ""));
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(svcCategory === cat));
+    b.addEventListener("click", () => { svcCategory = cat; renderServiceTables(); });
+    chips.appendChild(b);
+  };
+  chip("", `Alle ${matching.length}`);
+  for (const c of [...counts.keys()].sort((a, b) => catRank(a) - catRank(b))) chip(c, `${labels.get(c)} ${counts.get(c)}`);
+
+  const rows = matching.filter((r) => !svcCategory || r.sv.category === svcCategory);
+  const box = $("#svc-groups");
+  box.replaceChildren();
+  if (!rows.length) {
+    box.appendChild(el("p", serviceRows.length ? "Nichts gefunden." : "Noch keine Dienste erkannt – sie kommen mit dem nächsten Portscan.", "muted"));
+    return;
+  }
+  if (svcGroupBy === "device") renderServicesByDevice(box, rows);
+  else renderServicesByCategory(box, rows);
+}
+
+function group(title, sub) {
+  const d = document.createElement("details");
+  d.className = "svc-group";
+  d.open = true;
+  const s = document.createElement("summary");
+  s.append(el("span", title, "svc-group-title"), el("span", sub, "muted small"));
+  d.appendChild(s);
+  return d;
+}
+
+function table(headers) {
+  const t = document.createElement("table");
+  const tr = document.createElement("tr");
+  for (const h of headers) tr.appendChild(el("th", h));
+  const thead = document.createElement("thead");
+  thead.appendChild(tr);
+  const tbody = document.createElement("tbody");
+  t.append(thead, tbody);
+  return [t, tbody];
+}
+
+function deviceLabel(h, port) {
+  const span = el("span", undefined, "device");
+  span.append(el("span", h.ip, "mono"));
+  const name = h.custom_name || h.hostname;
+  if (name) span.append(document.createTextNode(" " + name));
+  if (port !== undefined) span.append(el("span", ":" + port, "muted mono"));
+  return span;
+}
+
+// Category view: per category the software with its versions; a click
+// on a row lists the devices.
+function renderServicesByCategory(box, rows) {
+  const cats = new Map();
   for (const r of rows) {
-    const k = (r.sv.product || "") + "\0" + r.sv.name;
-    if (!groups.has(k)) groups.set(k, { sv: r.sv, versions: new Map(), hosts: new Set() });
-    const g = groups.get(k);
+    if (!cats.has(r.sv.category)) cats.set(r.sv.category, { label: r.sv.category_label, software: new Map() });
+    const sw = cats.get(r.sv.category).software;
+    const k = softwareKey(r.sv);
+    if (!sw.has(k)) sw.set(k, { sv: r.sv, versions: new Map(), rows: [] });
+    const g = sw.get(k);
     const v = r.sv.version || "–";
     g.versions.set(v, (g.versions.get(v) || 0) + 1);
-    g.hosts.add(r.h.network_id + "/" + r.h.ip);
+    g.rows.push(r);
   }
-  const sum = $("#svc-summary");
-  sum.replaceChildren();
-  for (const g of groups.values()) {
-    const tr = document.createElement("tr");
-    cell(tr, g.sv.product || "unbekannt", g.sv.product ? "strong" : "muted");
-    cell(tr, g.sv.name);
-    cell(tr, [...g.versions].map(([v, n]) => n > 1 ? `${v} (${n}×)` : v).join(", "));
-    cell(tr, String(g.hosts.size));
-    sum.appendChild(tr);
+  for (const cat of [...cats.keys()].sort((a, b) => catRank(a) - catRank(b))) {
+    const c = cats.get(cat);
+    const list = [...c.software.entries()].sort(([, a], [, b]) =>
+      !a.sv.product - !b.sv.product || (a.sv.product || a.sv.name).localeCompare(b.sv.product || b.sv.name));
+    const ports = list.reduce((n, [, g]) => n + g.rows.length, 0);
+    const d = group(c.label, ` · ${list.length} Software, ${ports} ${ports === 1 ? "Dienst" : "Dienste"}`);
+    const [t, tbody] = table(["Software", "Dienst", "Versionen", "Geräte"]);
+    for (const [k, g] of list) {
+      const tr = document.createElement("tr");
+      tr.className = "clickable";
+      tr.tabIndex = 0;
+      const open = svcOpen.has(k);
+      tr.setAttribute("aria-expanded", String(open));
+      const name = cell(tr, "", g.sv.product ? "strong" : "muted");
+      name.append(el("span", open ? "▾ " : "▸ ", "muted"), document.createTextNode(g.sv.product || "unbekannte Software"));
+      cell(tr, g.sv.name);
+      cell(tr, [...g.versions].map(([v, n]) => (n > 1 ? `${v} (${n}×)` : v)).join(", "));
+      cell(tr, String(new Set(g.rows.map((r) => hostKey(r.h))).size));
+      const toggle = () => { if (open) svcOpen.delete(k); else svcOpen.add(k); renderServiceTables(); };
+      tr.addEventListener("click", toggle);
+      tr.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); } });
+      tbody.appendChild(tr);
+      if (open) {
+        const dr = document.createElement("tr");
+        dr.className = "svc-devices";
+        const td = document.createElement("td");
+        td.colSpan = 4;
+        for (const r of [...g.rows].sort((a, b) => ipCompare(a.h.ip, b.h.ip) || a.port - b.port)) {
+          const item = deviceLabel(r.h, r.port);
+          if (r.sv.version) item.title = r.sv.version + (r.sv.extra ? " · " + r.sv.extra : "");
+          td.appendChild(item);
+        }
+        dr.appendChild(td);
+        tbody.appendChild(dr);
+      }
+    }
+    d.appendChild(t);
+    box.appendChild(d);
   }
-  if (!groups.size) emptyRow(sum, 4, serviceRows.length ? "Nichts gefunden." : "Noch keine Dienste erkannt – sie kommen mit dem nächsten Portscan.");
+}
 
-  const tbody = $("#services");
-  tbody.replaceChildren();
+// Device view: per device its services, sorted by category.
+function renderServicesByDevice(box, rows) {
+  const devices = new Map();
   for (const r of rows) {
-    const tr = document.createElement("tr");
-    cell(tr, r.sv.product || "–", r.sv.product ? "" : "muted");
-    cell(tr, r.sv.version || "–", "mono");
-    cell(tr, r.sv.name);
-    const host = cell(tr, "");
-    host.append(el("span", r.h.ip, "mono"), document.createTextNode(" "), hostName(r.h));
-    cell(tr, String(r.port), "mono");
-    cell(tr, r.sv.seen_at ? ago(r.sv.seen_at) : "–").title = r.sv.method === "nmap" ? "erkannt mit nmap" : "erkannt über Banner/Header";
-    tbody.appendChild(tr);
+    const k = hostKey(r.h);
+    if (!devices.has(k)) devices.set(k, { h: r.h, rows: [] });
+    devices.get(k).rows.push(r);
   }
-  if (!rows.length) emptyRow(tbody, 6, serviceRows.length ? "Nichts gefunden." : "Noch keine Dienste erkannt.");
+  for (const { h, rows: list } of [...devices.values()].sort((a, b) => ipCompare(a.h.ip, b.h.ip))) {
+    const name = h.custom_name || h.hostname;
+    const d = group(h.ip + (name ? " " + name : ""), ` · ${networkName(h.network_id)} · ${list.length} ${list.length === 1 ? "Dienst" : "Dienste"}`);
+    const [t, tbody] = table(["Port", "Kategorie", "Software", "Version", "Dienst"]);
+    for (const r of list.sort((a, b) => catRank(a.sv.category) - catRank(b.sv.category) || a.port - b.port)) {
+      const tr = document.createElement("tr");
+      cell(tr, String(r.port), "mono");
+      cell(tr, "").appendChild(el("span", r.sv.category_label, "pill cat cat-" + r.sv.category));
+      cell(tr, r.sv.product || "–", r.sv.product ? "" : "muted");
+      cell(tr, r.sv.version || "–", "mono").title = r.sv.extra || "";
+      cell(tr, r.sv.name);
+      tbody.appendChild(tr);
+    }
+    d.appendChild(t);
+    box.appendChild(d);
+  }
+}
+
+function setupServices() {
+  for (const b of $$(".seg-btn[data-group]")) {
+    b.addEventListener("click", () => {
+      svcGroupBy = b.dataset.group;
+      for (const o of $$(".seg-btn[data-group]")) {
+        o.classList.toggle("active", o === b);
+        o.setAttribute("aria-pressed", String(o === b));
+      }
+      renderServiceTables();
+    });
+  }
 }
 
 // ---- network dialog (create and edit) ----
@@ -1119,6 +1246,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#host-network").addEventListener("change", renderHosts);
   $("#svc-network").addEventListener("change", renderServices);
   $("#svc-filter").addEventListener("input", renderServiceTables);
+  setupServices();
   $("#refresh").addEventListener("click", refresh);
 
   $("#login-form").addEventListener("submit", async (ev) => {

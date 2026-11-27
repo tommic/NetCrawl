@@ -130,24 +130,18 @@
     <div class="panel" data-panel="services" hidden>
       <div class="card">
         <div class="title-row">
-          <h2>Software im Netz</h2>
+          <div class="seg" role="group" aria-label="Gruppieren nach">
+            <button type="button" class="seg-btn active" data-group="category" aria-pressed="true">Nach Kategorie</button>
+            <button type="button" class="seg-btn" data-group="device" aria-pressed="false">Nach Gerät</button>
+          </div>
           <div class="row">
             <input id="svc-filter" type="search" placeholder="Suchen, z. B. OpenSSH" aria-label="Dienste filtern">
             <select id="svc-network" aria-label="Netz"><option value="0">Alle Netze</option></select>
           </div>
         </div>
-        <table>
-          <thead><tr><th>Software</th><th>Dienst</th><th>Versionen</th><th>Geräte</th></tr></thead>
-          <tbody id="svc-summary"></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h2>Alle Dienste</h2>
-        <table>
-          <thead><tr><th>Software</th><th>Version</th><th>Dienst</th><th>Gerät</th><th>Port</th><th>Erkannt</th></tr></thead>
-          <tbody id="services"></tbody>
-        </table>
-        <p class="hint">Erkannt beim Portscan: mit <code>nmap -sV</code>, wenn nmap auf dem Crawler installiert ist, sonst über Banner, HTTP-Header und TLS. Ändert sich Software oder Version, gibt es eine Meldung.</p>
+        <div id="svc-chips" class="chips" role="group" aria-label="Kategorie"></div>
+        <div id="svc-groups"></div>
+        <p class="hint">Erkannt beim Portscan: mit <code>nmap -sV</code>, wenn nmap auf dem Crawler installiert ist, sonst über Banner, HTTP-Header und TLS. Ändert sich Software oder Version, gibt es eine Meldung. Software-Zeile anklicken zeigt die Geräte.</p>
       </div>
     </div>
 
