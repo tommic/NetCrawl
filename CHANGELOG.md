@@ -11,7 +11,7 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 
 ## 0.11.0 – 2026-11-27
 
-- Crawler aktualisieren sich selbst (OwnDo #208): Der Crawler meldet seine Version, der Server antwortet mit seiner
+- Crawler aktualisieren sich selbst: Der Crawler meldet seine Version, der Server antwortet mit seiner
   (`X-NetCrawl-Version`). Weicht sie ab, stößt der Crawler den neuen Updater `netcrawl-agent-update` an (root,
   systemd). Der holt den `netcrawl-agent` selbst vom Server über den gepinnten TLS-Schlüssel, prüft SHA-256 und Version
   gegen `/install/agent/latest`, tauscht ihn aus und startet den Crawler neu. Zusätzlich ein Timer alle 6 Stunden.
@@ -22,7 +22,7 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 
 ## 0.10.0 – 2026-11-27
 
-- Dienste und Versionen (OwnDo #207): Beim Portscan erkennt der Crawler die Software hinter jedem offenen Port –
+- Dienste und Versionen: Beim Portscan erkennt der Crawler die Software hinter jedem offenen Port –
   mit `nmap -sV`, wenn nmap installiert ist, sonst über Banner, HTTP-Header und TLS (OpenSSH, nginx, Apache,
   Postfix, Exim, MySQL/MariaDB, FTP, Dovecot …). Gespeichert pro Port (Migration 0008).
 - Eigener Zeitplan pro Netz: „Diensterkennung alle …“ (Standard 24 Std., mindestens 15 Min.). Der Portscan kann
@@ -38,7 +38,7 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 
 ## 0.9.0 – 2026-11-27
 
-- Netz-Panel überarbeitet (OwnDo #188): Einstellungen in Gruppen (Netz, Zeitplan, Ports, Meldungen, Optionen),
+- Netz-Panel überarbeitet: Einstellungen in Gruppen (Netz, Zeitplan, Ports, Meldungen, Optionen),
   jede mit kurzer Erklärung. Host-Erkennung und Portscan stehen untereinander mit eigener Einheit (Min./Std.),
   Offline-Schwellen wahlweise in Stunden oder Tagen. „Ausnehmen“ erklärt die Schreibweise.
 - Ports beim Portscan: Die Auswahl zeigt, wie viele Ports sie umfasst; die Liste steht im Tooltip bzw. zum Aufklappen.
@@ -47,7 +47,7 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 - Ungespeicherte Änderungen gehen nicht mehr verloren: Klick daneben, Esc oder „Schließen“ fragen nach
   („Verwerfen“ / „Weiter bearbeiten“). Speichern und Abbrechen bleiben unten immer sichtbar.
 - Neue Netze werden im selben Panel angelegt („Netz anlegen“) statt im Formular unten auf der Seite.
-- „Wichtig“ neu gedacht (OwnDo #189): Wichtige Geräte haben eine eigene, kurze Schwelle –
+- „Wichtig“ neu gedacht: Wichtige Geräte haben eine eigene, kurze Schwelle –
   „Kritisch“ nach 60 Minuten Fehlen (pro Netz einstellbar, mindestens 5 Minuten) statt erst nach der Warnschwelle (7 Tage).
   Im Host-Panel per Schalter mit Erklärung setzbar. API: `offline_critical_minutes`, Kommandozeile: `--offline-critical`.
   Die Schwelle muss länger sein als die Host-Erkennung (ein einzelner verpasster Rundgang löst keinen Alarm aus);
@@ -58,7 +58,7 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 
 - Netze bearbeiten: „Bearbeiten“ unter „Netze & Crawler“ öffnet ein Panel mit allen Einstellungen
   (Name, Bereich, Ausnahmen, Intervalle, Ports, Offline-Schwellen, aktiv). Inventar und Verlauf bleiben erhalten;
-  der Crawler muss nichts neu holen, die Änderung gilt ab dem nächsten geplanten Scan (OwnDo #187).
+  der Crawler muss nichts neu holen, die Änderung gilt ab dem nächsten geplanten Scan.
 - Portscan-Intervall in Minuten, mindestens 15 Minuten (bisher mindestens 1 Stunde).
   API: neues Feld `portscan_interval_minutes`, `portscan_interval_hours` bleibt gültig; `scan_preset` in der Netz-Ansicht.
 - Kommandozeile: `network update --id N …` ändert nur die angegebenen Einstellungen.

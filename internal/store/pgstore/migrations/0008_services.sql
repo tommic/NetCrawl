@@ -1,4 +1,4 @@
--- Service and version behind each open port (OwnDo #207).
+-- Service and version behind each open port.
 ALTER TABLE host_ports
     ADD COLUMN service         TEXT NOT NULL DEFAULT '',
     ADD COLUMN product         TEXT NOT NULL DEFAULT '',
