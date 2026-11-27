@@ -57,6 +57,17 @@ type Enrollment struct {
 	UsedAt     *time.Time
 }
 
+// ExportToken lets a program (e.g. an AI agent) read the inventory
+// export without an admin login. Only a SHA-256 of the token is stored.
+type ExportToken struct {
+	ID         int64
+	Name       string
+	TokenHash  []byte
+	CreatedBy  string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
 // Job states.
 const (
 	JobPending   = "pending"
@@ -288,6 +299,14 @@ type Store interface {
 	// Setting returns a server setting ("" if unset); SetSetting stores it.
 	Setting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key, value string, now time.Time) error
+
+	// CreateExportToken stores a read token and returns its ID.
+	CreateExportToken(ctx context.Context, t ExportToken) (int64, error)
+	ListExportTokens(ctx context.Context) ([]ExportToken, error)
+	// UseExportToken returns the token with this hash and records the use
+	// (ErrNotFound if unknown or deleted).
+	UseExportToken(ctx context.Context, tokenHash []byte, now time.Time) (ExportToken, error)
+	DeleteExportToken(ctx context.Context, id int64) error
 
 	// CreateEnrollment stores a one-time code and invalidates earlier
 	// unused codes of the crawler. ErrNotFound if the crawler is unknown.

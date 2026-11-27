@@ -3,6 +3,7 @@
 package memstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/netip"
@@ -23,23 +24,25 @@ type session struct {
 
 // Store is an in-memory store.Store. The zero value is not usable; use New.
 type Store struct {
-	mu       sync.Mutex
-	admins   map[string]store.Admin
-	nextID   int64
-	sessions map[string]session
-	crawlers map[string]store.Crawler
-	nonces   map[nonceKey]time.Time
-	jobs     map[string]store.Job
-	results  map[string]store.Result
-	audit    []store.AuditEntry
-	networks map[int64]store.Network
-	nextNet  int64
-	hosts    map[int64]map[string]store.Host
-	events   []store.Event
-	enrolls  map[string]store.Enrollment
-	notify   store.NotificationSettings
-	notified map[int64]time.Time
-	settings map[string]string
+	mu           sync.Mutex
+	admins       map[string]store.Admin
+	nextID       int64
+	sessions     map[string]session
+	crawlers     map[string]store.Crawler
+	nonces       map[nonceKey]time.Time
+	jobs         map[string]store.Job
+	results      map[string]store.Result
+	audit        []store.AuditEntry
+	networks     map[int64]store.Network
+	nextNet      int64
+	hosts        map[int64]map[string]store.Host
+	events       []store.Event
+	enrolls      map[string]store.Enrollment
+	notify       store.NotificationSettings
+	notified     map[int64]time.Time
+	settings     map[string]string
+	exportTokens []store.ExportToken
+	nextToken    int64
 }
 
 // New returns an empty store.
@@ -714,4 +717,56 @@ func (s *Store) MarkEventsNotified(_ context.Context, ids []int64, at time.Time)
 		}
 	}
 	return nil
+}
+
+func (s *Store) CreateExportToken(_ context.Context, t store.ExportToken) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, o := range s.exportTokens {
+		if bytes.Equal(o.TokenHash, t.TokenHash) {
+			return 0, store.ErrExists
+		}
+	}
+	s.nextToken++
+	t.ID = s.nextToken
+	t.TokenHash = bytes.Clone(t.TokenHash)
+	s.exportTokens = append(s.exportTokens, t)
+	return t.ID, nil
+}
+
+func (s *Store) ListExportTokens(_ context.Context) ([]store.ExportToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]store.ExportToken, len(s.exportTokens))
+	for i, t := range s.exportTokens {
+		t.LastUsedAt = cloneTime(t.LastUsedAt)
+		out[i] = t
+	}
+	return out, nil
+}
+
+func (s *Store) UseExportToken(_ context.Context, tokenHash []byte, now time.Time) (store.ExportToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, t := range s.exportTokens {
+		if bytes.Equal(t.TokenHash, tokenHash) {
+			u := now
+			s.exportTokens[i].LastUsedAt = &u
+			t.LastUsedAt = &u
+			return t, nil
+		}
+	}
+	return store.ExportToken{}, store.ErrNotFound
+}
+
+func (s *Store) DeleteExportToken(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, t := range s.exportTokens {
+		if t.ID == id {
+			s.exportTokens = append(s.exportTokens[:i], s.exportTokens[i+1:]...)
+			return nil
+		}
+	}
+	return store.ErrNotFound
 }

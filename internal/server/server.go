@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerInventoryRoutes(mux)
 	s.registerInstallRoutes(mux)
+	s.registerExportRoutes(mux)
 	s.registerNotifyRoutes(mux)
 	s.registerUI(mux)
 	return s.securityHeaders(mux)
