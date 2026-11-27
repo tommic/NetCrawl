@@ -78,8 +78,8 @@ func TestExport(t *testing.T) {
 		"  9999/tcp Dienst unbekannt",
 		"- 10.0.0.20 · offline seit",
 		"  Ports: noch kein Portscan",
-		"- OpenSSH 9.6p1 [ssh]: 10.0.0.5:22",
-		"- unbekannte Software [http]: 10.0.0.5:8080",
+		"### Web\n- unbekannte Software [http]: 10.0.0.5:8080",
+		"### Fernzugriff\n- OpenSSH 9.6p1 [ssh]: 10.0.0.5:22",
 		"Warnung: Port 8080 neu offen auf 10.0.0.5",
 	} {
 		if !strings.Contains(text, want) {
