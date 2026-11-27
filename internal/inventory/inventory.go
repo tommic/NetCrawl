@@ -28,19 +28,30 @@ const (
 	TypePortsBaseline   = "ports.baseline"
 	TypePortOpened      = "port.opened"
 	TypePortClosed      = "port.closed"
+	TypeServiceChanged  = "service.changed"
 )
 
 // seen collects what a result reports per address.
 type seen struct {
 	hostname string
 	ports    []int
+	services map[int]store.Service
 }
 
 func collect(res protocol.Result) map[string]seen {
 	out := map[string]seen{}
 	for _, n := range res.Networks {
 		for ip, h := range n.Hosts {
-			out[ip] = seen{hostname: h.Hostname, ports: h.Ports}
+			s := seen{hostname: h.Hostname, ports: h.Ports}
+			for port, d := range h.Details {
+				if d.Service != "" {
+					if s.services == nil {
+						s.services = map[int]store.Service{}
+					}
+					s.services[port] = store.Service{Name: d.Service, Product: d.Product, Version: d.ServiceVersion, Extra: d.ServiceExtra, Method: d.ServiceMethod}
+				}
+			}
+			out[ip] = s
 		}
 	}
 	return out
@@ -84,11 +95,12 @@ func sortedKeys(m map[string]seen) []string {
 func ApplyResult(kind, jobID string, res protocol.Result, now time.Time) store.InventoryUpdate {
 	found := collect(res)
 	return func(n *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
-		u := updater{n: n, hosts: hosts, now: now, jobID: jobID, baseline: !n.BaselineDone}
+		u := updater{n: n, hosts: hosts, now: now, jobID: jobID, baseline: !n.BaselineDone, openedEvents: map[string]int{}}
 		for _, ip := range sortedKeys(found) {
 			u.markSeen(ip, found[ip].hostname)
 			if kind == protocol.JobKindPorts {
 				u.comparePorts(ip, found[ip].ports)
+				u.updateServices(ip, found[ip].services)
 			}
 		}
 		switch kind {
@@ -129,6 +141,9 @@ type updater struct {
 	baseline bool
 	changed  map[string]bool
 	events   []store.Event
+	// openedEvents: "ip/port" -> index of its port.opened event, so the
+	// service found on a new port can be named in it.
+	openedEvents map[string]int
 }
 
 func (u *updater) touch(ip string) {
@@ -244,6 +259,7 @@ func (u *updater) comparePorts(ip string, open []int) {
 			Message: fmt.Sprintf("Port %d neu offen auf %s", p, label(ip, h.Hostname)),
 			Details: details(map[string]int{"port": p}),
 		})
+		u.openedEvents[ip+"/"+strconv.Itoa(p)] = len(u.events) - 1
 	}
 	for _, p := range closed {
 		u.event(store.Event{
@@ -325,5 +341,45 @@ func humanDuration(d time.Duration) string {
 		return fmt.Sprintf("%d Minuten", int(d.Minutes()))
 	default:
 		return "einer Minute"
+	}
+}
+
+// updateServices stores the services identified on a host's open ports.
+// A port without a result keeps what it had. A different product or
+// version than last time (found the same way) raises service.changed:
+// a warning if another product answers now, info for a version change.
+func (u *updater) updateServices(ip string, found map[int]store.Service) {
+	h := u.hosts[ip]
+	for i := range h.Ports {
+		p := &h.Ports[i]
+		s, ok := found[p.Port]
+		if !ok {
+			continue
+		}
+		old := p.Service
+		if s.Product == "" && old.Product != "" && old.Name == s.Name {
+			s = old // a weaker answer this time: keep the known product
+		}
+		t := u.now
+		s.SeenAt = &t
+		p.Service = s
+		if ev, ok := u.openedEvents[ip+"/"+strconv.Itoa(p.Port)]; ok {
+			u.events[ev].Message += " (" + s.Label() + ")"
+			u.events[ev].Details = details(map[string]any{"port": p.Port, "service": s.Name, "product": s.Product, "version": s.Version})
+		}
+		// Only compare like with like: nmap and the built-in checks word
+		// versions differently.
+		if old.Product == "" || old.Method != s.Method || (old.Product == s.Product && old.Version == s.Version) {
+			continue
+		}
+		sev := store.SeverityInfo
+		if old.Product != s.Product {
+			sev = store.SeverityWarning
+		}
+		u.event(store.Event{
+			IP: ip, Type: TypeServiceChanged, Severity: sev,
+			Message: fmt.Sprintf("Dienst auf %s Port %d geändert: %s → %s", label(ip, h.Hostname), p.Port, old.Label(), s.Label()),
+			Details: details(map[string]any{"port": p.Port, "old": old.Label(), "new": s.Label(), "service": s.Name}),
+		})
 	}
 }

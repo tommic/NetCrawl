@@ -415,7 +415,8 @@ func testInventory(t *testing.T, s store.Store) {
 		}
 		hosts["127.0.0.10"] = &store.Host{Hostname: "b", FirstSeen: t0, LastSeen: t0}
 		hosts["127.0.0.9"] = &store.Host{Hostname: "a", FirstSeen: t0, LastSeen: t0, PortsScannedAt: &scanned,
-			Ports: []store.HostPort{{Port: 443, FirstSeen: t0, LastSeen: t0}, {Port: 22, FirstSeen: t0, LastSeen: t0}}}
+			Ports: []store.HostPort{{Port: 443, FirstSeen: t0, LastSeen: t0}, {Port: 22, FirstSeen: t0, LastSeen: t0,
+				Service: store.Service{Name: "ssh", Product: "OpenSSH", Version: "9.6p1", Extra: "Ubuntu", Method: "nmap", SeenAt: &scanned}}}}
 		hosts["127.0.0.11"] = &store.Host{FirstSeen: t0, LastSeen: t0} // not in changed: not stored
 		net.BaselineDone = true
 		net.DiscoveryDoneAt = &scanned
@@ -435,6 +436,10 @@ func testInventory(t *testing.T, s store.Store) {
 	h := hosts[0]
 	if h.NetworkID != n.ID || h.Hostname != "a" || len(h.Ports) != 2 || h.Ports[0].Port != 22 || h.PortsScannedAt == nil {
 		t.Errorf("host = %+v", h)
+	}
+	if sv := h.Ports[0].Service; sv.Label() != "OpenSSH 9.6p1" || sv.Extra != "Ubuntu" || sv.Method != "nmap" ||
+		sv.SeenAt == nil || !sv.SeenAt.Equal(scanned) || h.Ports[1].Service.Name != "" {
+		t.Errorf("services = %+v", h.Ports)
 	}
 	got, _ := s.Network(ctx, n.ID)
 	if !got.BaselineDone || got.DiscoveryDoneAt == nil || !got.DiscoveryDoneAt.Equal(scanned) {

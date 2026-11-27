@@ -23,6 +23,15 @@ type PortInfo struct {
 	TLSNotAfter  string `json:"tlsNotAfter,omitempty"`
 	SSHKeyType   string `json:"sshKeyType,omitempty"`
 	SSHKeyFinger string `json:"sshKeyFingerprint,omitempty"`
+	// Service detection (nmap -sV or the built-in fallback): protocol
+	// name ("ssh", "http"), product ("OpenSSH"), version ("9.6p1") and
+	// extra details ("Ubuntu Linux; protocol 2.0").
+	Service        string `json:"service,omitempty"`
+	Product        string `json:"product,omitempty"`
+	ServiceVersion string `json:"serviceVersion,omitempty"`
+	ServiceExtra   string `json:"serviceExtra,omitempty"`
+	// ServiceMethod tells how the service was identified: "nmap" or "banner".
+	ServiceMethod string `json:"serviceMethod,omitempty"`
 }
 
 type Host struct {
@@ -35,6 +44,9 @@ type Host struct {
 // human-readable line, e.g. "443: cn=router.local issuer=Self expires=2027-01-01".
 func FormatPortInfo(port int, info PortInfo) string {
 	var parts []string
+	if info.Service != "" {
+		parts = append(parts, "service="+strings.TrimSpace(info.Service+" "+info.Product+" "+info.ServiceVersion))
+	}
 	if info.Banner != "" {
 		parts = append(parts, "banner="+info.Banner)
 	}

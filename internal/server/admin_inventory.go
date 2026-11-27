@@ -208,9 +208,20 @@ type HostView struct {
 
 // PortView is an open port of a host.
 type PortView struct {
-	Port      int       `json:"port"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
+	Port      int          `json:"port"`
+	FirstSeen time.Time    `json:"first_seen"`
+	LastSeen  time.Time    `json:"last_seen"`
+	Service   *ServiceView `json:"service,omitempty"`
+}
+
+// ServiceView is the identified service on a port.
+type ServiceView struct {
+	Name    string     `json:"name"`
+	Product string     `json:"product"`
+	Version string     `json:"version"`
+	Extra   string     `json:"extra"`
+	Method  string     `json:"method"`
+	SeenAt  *time.Time `json:"seen_at,omitempty"`
 }
 
 func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +239,11 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 			PortsScannedAt: h.PortsScannedAt, Ports: []PortView{},
 		}
 		for _, p := range h.Ports {
-			v.Ports = append(v.Ports, PortView{p.Port, p.FirstSeen, p.LastSeen})
+			pv := PortView{Port: p.Port, FirstSeen: p.FirstSeen, LastSeen: p.LastSeen}
+			if sv := p.Service; sv.Name != "" {
+				pv.Service = &ServiceView{sv.Name, sv.Product, sv.Version, sv.Extra, sv.Method, sv.SeenAt}
+			}
+			v.Ports = append(v.Ports, pv)
 		}
 		out = append(out, v)
 	}
