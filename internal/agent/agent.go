@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -58,6 +59,8 @@ type Agent struct {
 	Services func(ctx context.Context, hosts map[string][]int) map[string]map[int]probe.Service
 	// interval overrides the polling interval (tests only).
 	interval time.Duration
+	// updateAsked is when the updater was last asked for a version.
+	updateAsked time.Time
 }
 
 // New runs the preflight checks: the config is already validated by
@@ -282,6 +285,9 @@ func (a *Agent) poll(ctx context.Context) (*protocol.Job, error) {
 	if err != nil {
 		return nil, fmt.Errorf("poll: %w", err)
 	}
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+		a.checkVersion(resp.Header.Get(protocol.HeaderServerVersion))
+	}
 	switch resp.StatusCode {
 	case http.StatusNoContent:
 		return nil, nil
@@ -450,4 +456,36 @@ func (a *Agent) addServices(ctx context.Context, res *protocol.Result) {
 			res.Networks[i].Hosts[ip] = h
 		}
 	}
+}
+
+// UpdateTriggerName is the file in the state directory (next to the lock
+// file) that asks netcrawl-agent-update to run.
+const UpdateTriggerName = "update-requested"
+
+// updateRetry: how long to wait before asking the updater again for the
+// same mismatch (e.g. no updater installed, or the update failed).
+const updateRetry = time.Hour
+
+// checkVersion asks the updater for an update when the server runs
+// another version. The trigger only starts the root updater, which
+// fetches and verifies the new agent from the server itself; the file's
+// content is informational.
+func (a *Agent) checkVersion(server string) {
+	if !protocol.ValidVersion(server) || server == version.Version {
+		return
+	}
+	if a.cfg.AutoUpdate != nil && !*a.cfg.AutoUpdate {
+		return
+	}
+	now := a.Now()
+	if !a.updateAsked.IsZero() && now.Sub(a.updateAsked) < updateRetry {
+		return
+	}
+	a.updateAsked = now
+	path := filepath.Join(filepath.Dir(a.cfg.resolve(a.cfg.LockFile)), UpdateTriggerName)
+	if err := os.WriteFile(path, []byte(server+"\n"), 0o640); err != nil {
+		a.Logf("[WARN] server runs %s, this crawler %s; could not ask for an update: %v", server, version.Version, err)
+		return
+	}
+	a.Logf("[INFO] server runs %s, this crawler %s: update requested", server, version.Version)
 }

@@ -9,6 +9,17 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.11.0 – 2026-11-27
+
+- Crawler aktualisieren sich selbst (OwnDo #208): Der Crawler meldet seine Version, der Server antwortet mit seiner
+  (`X-NetCrawl-Version`). Weicht sie ab, stößt der Crawler den neuen Updater `netcrawl-agent-update` an (root,
+  systemd). Der holt den `netcrawl-agent` selbst vom Server über den gepinnten TLS-Schlüssel, prüft SHA-256 und Version
+  gegen `/install/agent/latest`, tauscht ihn aus und startet den Crawler neu. Zusätzlich ein Timer alle 6 Stunden.
+  Abschaltbar mit `"auto_update": false` in der `agent.json`.
+- Crawler-Liste: Spalte „Version“, veraltete Crawler sind markiert.
+- Einmalig: Crawler, die vor 0.11.0 installiert wurden, einmal neu installieren (danach automatisch).
+  Das Deinstallations-Skript entfernt auch den Updater.
+
 ## 0.10.0 – 2026-11-27
 
 - Dienste und Versionen (OwnDo #207): Beim Portscan erkennt der Crawler die Software hinter jedem offenen Port –

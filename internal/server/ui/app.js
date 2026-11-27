@@ -95,8 +95,23 @@ function showLogin() {
   document.body.classList.remove("signed-in");
 }
 
+let serverVersion = "";
+
 function showVersion(v) {
+  serverVersion = v || "";
   $("#version").textContent = v ? "Version " + v : "";
+}
+
+// crawlerVersion shows what a crawler runs; an outdated one updates itself
+// (installer with updater) or needs a rebuild/reinstall.
+function crawlerVersion(c) {
+  if (!c.agent_version) return el("span", "–", "muted");
+  if (!c.outdated) return el("span", c.agent_version, "mono");
+  const span = el("span", undefined, "nowrap");
+  span.append(el("span", c.agent_version + " ", "mono"), el("span", "veraltet", "pill status-pending"));
+  span.title = `Der Server hat Version ${serverVersion}. Mit dem Installationsskript eingerichtete Crawler (ab 0.11) aktualisieren sich selbst ` +
+    "innerhalb weniger Minuten; ältere einmal neu installieren, Docker-Crawler mit „docker compose up -d --build“.";
+  return span;
 }
 
 async function showApp(username) {
@@ -886,6 +901,7 @@ function renderCrawlers(crawlers) {
     cell(tr, c.id, "strong");
     const [state, stateCls] = crawlerState(c);
     cell(tr, "").appendChild(el("span", state, "pill " + stateCls));
+    cell(tr, "").appendChild(crawlerVersion(c));
     cell(tr, c.allow.join(", "), "mono");
     cell(tr, String(c.max_hosts));
     cell(tr, fmt(c.last_seen_at));
@@ -919,7 +935,7 @@ function renderCrawlers(crawlers) {
     td.appendChild(t);
     tbody.appendChild(tr);
   }
-  if (!crawlers.length) emptyRow(tbody, 6, "Noch kein Crawler angelegt.");
+  if (!crawlers.length) emptyRow(tbody, 7, "Noch kein Crawler angelegt.");
 }
 
 // showInstall creates a one-time install command and shows it.

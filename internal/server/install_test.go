@@ -21,6 +21,7 @@ import (
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store/memstore"
 	"netcrawler/internal/tlspin"
+	"netcrawler/internal/version"
 )
 
 type installFixture struct {
@@ -168,8 +169,23 @@ func TestInstallerFlow(t *testing.T) {
 			t.Errorf("%s: %d", p, code)
 		}
 	}
-	if code, body := f.get("/install/uninstall"); code != 200 || !strings.Contains(body, "userdel") {
+	if code, body := f.get("/install/uninstall"); code != 200 || !strings.Contains(body, "userdel") ||
+		!strings.Contains(body, "netcrawl-agent-update.timer") {
 		t.Fatalf("uninstall: %d", code)
+	}
+
+	// Update manifest: server version and the checksum per architecture.
+	if code, body := f.get("/install/agent/latest"); code != 200 ||
+		body != "version "+version.Version+"\nlinux-amd64 "+f.binSum+"\n" {
+		t.Fatalf("latest: %d %q", code, body)
+	}
+
+	// The script installs the updater with its own, root-owned settings.
+	for _, want := range []string{"/usr/local/sbin/netcrawl-agent-update", "netcrawl-agent-update.timer", "netcrawl-agent-update.path",
+		"PathExists=/var/lib/netcrawl-agent/update-requested", `$CONF_DIR/update.conf`, `$SERVER_URL/install/agent/latest`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script lacks %s", want)
+		}
 	}
 
 	// A wrong pin fails before the code is sent: the code stays valid.

@@ -6,6 +6,8 @@
 #   /etc/netcrawl-agent/               agent.json + agent.secret
 #   /var/lib/netcrawl-agent/           lock file
 #   netcrawl-agent.service             runs as the unprivileged user "netcrawl"
+#   netcrawl-agent-update (.service/.timer/.path)
+#                                      keeps netcrawl-agent at the server's version
 #
 # The one-time code in this script is valid once and for a short time.
 # The release (what the crawler may scan) comes from the server
@@ -105,6 +107,51 @@ if [ "$USE_SYSTEMD" = 0 ]; then
   exit 0
 fi
 
+say "Installing the updater (keeps the crawler at the server's version)"
+mkdir -p /usr/local/sbin
+cat > /usr/local/sbin/netcrawl-agent-update <<'UPDATER'
+{{.Updater}}UPDATER
+chmod 0755 /usr/local/sbin/netcrawl-agent-update
+# Root-owned: the crawler can't redirect where updates come from.
+printf 'SERVER_URL=%s\nTLS_PIN=%s\n' "$SERVER_URL" "$TLS_PIN" > "$CONF_DIR/update.conf"
+chmod 0644 "$CONF_DIR/update.conf"
+cat > /etc/systemd/system/netcrawl-agent-update.service <<'UNIT'
+[Unit]
+Description=NetCrawl crawler update (netcrawl-agent)
+Documentation=https://github.com/tommic/NetCrawl
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/netcrawl-agent-update
+PrivateTmp=yes
+ProtectHome=yes
+UNIT
+cat > /etc/systemd/system/netcrawl-agent-update.timer <<'UNIT'
+[Unit]
+Description=Check for a new netcrawl-agent every 6 hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target
+UNIT
+# The crawler creates this file when the server runs another version.
+cat > /etc/systemd/system/netcrawl-agent-update.path <<'UNIT'
+[Unit]
+Description=Update netcrawl-agent when the crawler asks for it
+
+[Path]
+PathExists=/var/lib/netcrawl-agent/update-requested
+
+[Install]
+WantedBy=paths.target
+UNIT
+
 say "Installing the systemd service"
 cat > "$UNIT" <<'UNIT'
 [Unit]
@@ -149,6 +196,7 @@ WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
 systemctl enable --now netcrawl-agent >/dev/null 2>&1 || true
+systemctl enable --now netcrawl-agent-update.timer netcrawl-agent-update.path >/dev/null 2>&1 || true
 sleep 3
 
 # Some containers (e.g. unprivileged LXC without nesting) cannot set up
@@ -181,6 +229,7 @@ fi
 if systemctl is-active --quiet netcrawl-agent; then
   say "netcrawl-agent is running. It appears as online in the web UI within a minute."
   echo "  Logs:      journalctl -u netcrawl-agent -f"
+  echo "  Updates:   automatic (journalctl -u netcrawl-agent-update); off with \"auto_update\": false in $CONF_DIR/agent.json"
   echo "  Uninstall: curl -fsS ${TLS_PIN:+-k --pinnedpubkey '$TLS_PIN' }$SERVER_URL/install/uninstall | sudo sh"
 else
   journalctl -u netcrawl-agent -n 20 --no-pager >&2 || true

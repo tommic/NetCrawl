@@ -119,12 +119,16 @@ func testCrawlers(t *testing.T, s store.Store) {
 	_, err = s.Crawler(ctx, "nope")
 	wantErr(t, err, store.ErrNotFound)
 
-	mustNoErr(t, s.TouchCrawler(ctx, "lab-2", t0.Add(time.Minute)))
+	mustNoErr(t, s.TouchCrawler(ctx, "lab-2", t0.Add(time.Minute), "0.10.0"))
+	mustNoErr(t, s.TouchCrawler(ctx, "lab-2", t0.Add(time.Minute), "")) // unknown version keeps the last one
+	if c, _ := s.Crawler(ctx, "lab-2"); c.AgentVersion != "0.10.0" {
+		t.Errorf("agent version = %q", c.AgentVersion)
+	}
 	got, _ = s.Crawler(ctx, "lab-2")
 	if got.LastSeenAt == nil || !got.LastSeenAt.Equal(t0.Add(time.Minute)) {
 		t.Errorf("last seen = %v", got.LastSeenAt)
 	}
-	wantErr(t, s.TouchCrawler(ctx, "nope", t0), store.ErrNotFound)
+	wantErr(t, s.TouchCrawler(ctx, "nope", t0, ""), store.ErrNotFound)
 
 	list, err := s.ListCrawlers(ctx)
 	mustNoErr(t, err)

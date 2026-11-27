@@ -46,6 +46,8 @@ X-Request-HMAC: 9c1e…            (Schlüssel: Crawler-Secret, job_id leer)
 | `401` | unbekannter/deaktivierter Crawler, ungültige Signatur, Zeitstempel außerhalb des Fensters |
 | `409` | Nonce bereits verwendet |
 
+Der Crawler sendet `User-Agent: netcrawl-agent/<Version>`; der Server merkt sich die Version (Anzeige „veraltet“). Bei `200` und `204` antwortet der Server mit `X-NetCrawl-Version: <Server-Version>`. Weicht sie ab, bittet der Crawler seinen lokalen Updater um ein Update (siehe SERVER.md, „Crawler aktualisieren sich selbst“). Beides ist nicht signiert und dient nur als Hinweis: Der Updater lädt und prüft das neue Programm selbst über den gepinnten TLS-Schlüssel.
+
 ```json
 {
   "job_id": "3757488f-b622-4ee7-bb9a-4618e6065c03",

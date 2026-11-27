@@ -135,9 +135,21 @@ Auf dem Crawler-Rechner ausführen (Debian/Ubuntu, Raspberry Pi OS, Proxmox-LXC;
 1. lädt `netcrawl-agent` vom eigenen Server und prüft die Prüfsumme,
 2. legt den Systembenutzer `netcrawl`, `/etc/netcrawl-agent/` und `/var/lib/netcrawl-agent/` an,
 3. löst den Einmal-Code ein: Der Crawler erhält ein **neues** Secret, die Freigabe wird **fest** in die lokale `agent.json` geschrieben,
-4. richtet den abgesicherten Dienst `netcrawl-agent.service` ein und startet ihn.
+4. richtet den abgesicherten Dienst `netcrawl-agent.service` ein und startet ihn,
+5. richtet den Updater `netcrawl-agent-update` ein (siehe unten).
 
 Nach spätestens einer Minute steht der Crawler in der Oberfläche auf „online“.
+
+#### Crawler aktualisieren sich selbst
+
+Nach einem Server-Update ziehen die Crawler von allein nach:
+
+- Der Crawler meldet bei jeder Abfrage seine Version; der Server antwortet mit seiner. Unterscheiden sie sich, bittet der Crawler den Updater um ein Update (Datei `/var/lib/netcrawl-agent/update-requested`, höchstens einmal pro Stunde).
+- Der Updater (`netcrawl-agent-update.service`, läuft als root) holt den neuen `netcrawl-agent` **selbst** vom Server – mit dem festgepinnten Schlüssel aus `/etc/netcrawl-agent/update.conf` –, prüft SHA-256 und Version gegen das Manifest `/install/agent/latest`, tauscht das Programm aus und startet den Crawler neu. Was der Crawler schreibt, wird nicht vertraut: Die Datei stößt den Updater nur an.
+- Zusätzlich prüft ein Timer alle 6 Stunden. Logs: `journalctl -u netcrawl-agent-update`.
+- Abschalten: `"auto_update": false` in `/etc/netcrawl-agent/agent.json` (Crawler und Updater halten sich daran).
+- In der Oberfläche steht pro Crawler die Version, ein veralteter ist markiert.
+- **Crawler, die vor Version 0.11.0 installiert wurden, haben noch keinen Updater:** einmal mit einem neuen Installationsbefehl neu installieren. Docker-Crawler aktualisiert `docker compose up -d --build`.
 
 - `-k --pinnedpubkey`: curl prüft statt einer CA exakt den Schlüssel des Servers. Ein anderer Server (z. B. ein Angreifer im Netz) wird abgewiesen, bevor Daten fließen.
 - Der Code gilt **einmal** und **30 Minuten**. Ein neuer Code macht den vorherigen ungültig. Wer `curl | sh` nicht mag: In der Oberfläche unter „Skript erst ansehen, dann ausführen“ steht die Variante zum Herunterladen und Prüfen.

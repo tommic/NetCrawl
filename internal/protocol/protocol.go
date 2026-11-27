@@ -35,7 +35,10 @@ func ResultPath(jobID string) string { return fmt.Sprintf(PathResultFmt, jobID) 
 
 // Headers of a signed job poll.
 const (
-	HeaderCrawlerID        = "X-Crawler-Id"
+	HeaderCrawlerID = "X-Crawler-Id"
+	// HeaderServerVersion is set on job poll answers: the crawler asks its
+	// updater for this version when it runs another one.
+	HeaderServerVersion    = "X-NetCrawl-Version"
 	HeaderRequestNonce     = "X-Request-Nonce"
 	HeaderRequestTimestamp = "X-Request-Timestamp"
 	HeaderRequestHMAC      = "X-Request-HMAC"
@@ -301,4 +304,28 @@ type EnrollResponse struct {
 func ValidToken(t string) bool {
 	k, err := DecodeKey(t)
 	return err == nil && len(k) == KeySize && EncodeKey(k) == t
+}
+
+// AgentVersionFromUserAgent reads the version from the crawler's
+// User-Agent "netcrawl-agent/<version>"; "" if it isn't one.
+func AgentVersionFromUserAgent(ua string) string {
+	v, ok := strings.CutPrefix(ua, "netcrawl-agent/")
+	if !ok || !ValidVersion(v) {
+		return ""
+	}
+	return v
+}
+
+// ValidVersion accepts version strings like "0.11.0", "0.11.0+abc123",
+// "dev": 1-40 characters of [0-9A-Za-z.+-].
+func ValidVersion(v string) bool {
+	if len(v) == 0 || len(v) > 40 {
+		return false
+	}
+	for _, r := range v {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '.' || r == '+' || r == '-') {
+			return false
+		}
+	}
+	return true
 }

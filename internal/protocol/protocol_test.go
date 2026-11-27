@@ -100,3 +100,20 @@ func TestValidators(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentVersionFromUserAgent(t *testing.T) {
+	cases := map[string]string{
+		"netcrawl-agent/0.10.0":                     "0.10.0",
+		"netcrawl-agent/0.10.0+abc1234":             "0.10.0+abc1234",
+		"netcrawl-agent/dev":                        "dev",
+		"netcrawl-agent/":                           "",
+		"netcrawl-agent/1.0 evil":                   "",
+		"curl/8.5.0":                                "",
+		"netcrawl-agent/" + strings.Repeat("9", 41): "",
+	}
+	for ua, want := range cases {
+		if got := AgentVersionFromUserAgent(ua); got != want {
+			t.Errorf("%q: %q, want %q", ua, got, want)
+		}
+	}
+}
