@@ -248,8 +248,13 @@ func (f *fixture) signedPoll(mod func(h http.Header, ts *int64, key *[]byte)) *h
 
 func TestJobPoll(t *testing.T) {
 	f := newFixture(t)
-	if resp := f.signedPoll(nil); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("no job: %d, want 204", resp.StatusCode)
+	resp0 := f.signedPoll(func(h http.Header, _ *int64, _ *[]byte) { h.Set("User-Agent", "netcrawl-agent/0.9.0") })
+	if resp0.StatusCode != http.StatusNoContent || resp0.Header.Get(protocol.HeaderServerVersion) != version.Version {
+		t.Fatalf("no job: %d (version header %q), want 204", resp0.StatusCode, resp0.Header.Get(protocol.HeaderServerVersion))
+	}
+	// The crawler's version comes from its User-Agent.
+	if c, _ := f.st.Crawler(context.Background(), "lab-1"); c.AgentVersion != "0.9.0" || !crawlerView(c).Outdated {
+		t.Errorf("agent version = %q, view %+v", c.AgentVersion, crawlerView(c))
 	}
 	j, err := CreateJob(context.Background(), f.st, "test", JobRequest{CrawlerID: "lab-1", Targets: []string{"127.0.0.1/32"}, Ports: []int{22}}, f.now)
 	if err != nil {

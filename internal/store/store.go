@@ -39,6 +39,8 @@ type Crawler struct {
 	Enabled    bool
 	CreatedAt  time.Time
 	LastSeenAt *time.Time
+	// AgentVersion is the netcrawl-agent version of the last job poll.
+	AgentVersion string
 	// ReinstallRequired: the release was changed on the server and the
 	// crawler still runs with its old local limits.
 	ReinstallRequired bool
@@ -275,7 +277,7 @@ type Store interface {
 	CreateCrawler(ctx context.Context, c Crawler) error
 	Crawler(ctx context.Context, id string) (Crawler, error)
 	ListCrawlers(ctx context.Context) ([]Crawler, error)
-	TouchCrawler(ctx context.Context, id string, now time.Time) error
+	TouchCrawler(ctx context.Context, id string, now time.Time, agentVersion string) error
 	// SetCrawlerEnabled enables or disables (revokes) a crawler.
 	SetCrawlerEnabled(ctx context.Context, id string, enabled bool) error
 	// UpdateCrawlerRelease atomically sets a new allowlist and host limit,

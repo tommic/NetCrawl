@@ -50,6 +50,10 @@ type Config struct {
 	// ports (nmap -sV if installed, else banner/HTTP/TLS checks), even if
 	// a job asks for it.
 	NoServiceDetection bool `json:"no_service_detection,omitempty"`
+	// AutoUpdate (default on): when the server runs another version, ask
+	// the updater (netcrawl-agent-update, installed by the installer) to
+	// replace this agent. false turns it off; the updater honors it too.
+	AutoUpdate *bool `json:"auto_update,omitempty"`
 
 	secret  []byte
 	baseDir string

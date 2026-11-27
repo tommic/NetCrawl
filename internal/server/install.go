@@ -23,6 +23,7 @@ import (
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store"
 	"netcrawler/internal/tlspin"
+	"netcrawler/internal/version"
 )
 
 //go:embed install.sh.tmpl
@@ -30,6 +31,9 @@ var installTemplateText string
 
 //go:embed uninstall.sh
 var uninstallScript []byte
+
+//go:embed agent-update.sh
+var agentUpdateScript string
 
 var installTemplate = template.Must(template.New("install").Parse(installTemplateText))
 
@@ -196,6 +200,7 @@ func (s *Server) registerInstallRoutes(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 		_, _ = w.Write(uninstallScript)
 	})
+	mux.HandleFunc("GET /install/agent/latest", s.handleAgentLatest)
 	mux.HandleFunc("GET /install/agent/{file}", s.handleAgentBinary)
 	mux.HandleFunc("GET /install/{token}", s.handleInstallScript)
 	mux.HandleFunc("POST "+protocol.PathEnroll, s.handleEnroll)
@@ -280,6 +285,7 @@ func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	err = installTemplate.Execute(&buf, map[string]string{
 		"ServerURL": ic.baseURL(), "TLSPin": ic.TLSPin, "CrawlerID": e.CrawlerID, "Token": token,
 		"SHA256AMD64": s.agents.sum("amd64"), "SHA256ARM64": s.agents.sum("arm64"),
+		"Updater": agentUpdateScript,
 	})
 	if err != nil {
 		s.internalError(w, err)
@@ -306,6 +312,34 @@ func (s *Server) handleAgentBinary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=netcrawl-agent")
 	http.ServeFile(w, r, s.agents.path(arch))
+}
+
+// handleAgentLatest is the update manifest read by netcrawl-agent-update:
+// the version of the offered agent and the SHA-256 per architecture,
+//
+//	version 0.11.0
+//	linux-amd64 <sha256>
+//	linux-arm64 <sha256>
+//
+// The agent binaries are built together with the server, so they carry
+// the server's version (the updater checks that before installing).
+func (s *Server) handleAgentLatest(w http.ResponseWriter, r *http.Request) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "version %s\n", version.Version)
+	n := 0
+	for _, arch := range AgentArchs {
+		if sum := s.agents.sum(arch); sum != "" {
+			fmt.Fprintf(&b, "linux-%s %s\n", arch, sum)
+			n++
+		}
+	}
+	if n == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.WriteString(w, b.String())
 }
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {

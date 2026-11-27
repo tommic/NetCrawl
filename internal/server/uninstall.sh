@@ -3,11 +3,13 @@
 set -eu
 [ "$(id -u)" -eq 0 ] || { echo "please run as root" >&2; exit 1; }
 if command -v systemctl >/dev/null 2>&1; then
-  systemctl disable --now netcrawl-agent 2>/dev/null || true
-  rm -rf /etc/systemd/system/netcrawl-agent.service /etc/systemd/system/netcrawl-agent.service.d
+  systemctl disable --now netcrawl-agent netcrawl-agent-update.timer netcrawl-agent-update.path 2>/dev/null || true
+  rm -rf /etc/systemd/system/netcrawl-agent.service /etc/systemd/system/netcrawl-agent.service.d \
+    /etc/systemd/system/netcrawl-agent-update.service /etc/systemd/system/netcrawl-agent-update.timer \
+    /etc/systemd/system/netcrawl-agent-update.path
   systemctl daemon-reload 2>/dev/null || true
 fi
-rm -f /usr/local/bin/netcrawl-agent
+rm -f /usr/local/bin/netcrawl-agent /usr/local/sbin/netcrawl-agent-update
 rm -rf /etc/netcrawl-agent /var/lib/netcrawl-agent
 if getent passwd netcrawl >/dev/null 2>&1; then
   userdel netcrawl 2>/dev/null || true

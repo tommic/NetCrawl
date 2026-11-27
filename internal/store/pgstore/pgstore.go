@@ -174,11 +174,11 @@ func (s *Store) CreateCrawler(ctx context.Context, c store.Crawler) error {
 	return err
 }
 
-const crawlerColumns = `id, secret, allow, max_hosts, enabled, created_at, last_seen_at, reinstall_required`
+const crawlerColumns = `id, secret, allow, max_hosts, enabled, created_at, last_seen_at, reinstall_required, agent_version`
 
 func scanCrawler(row pgx.Row) (store.Crawler, error) {
 	var c store.Crawler
-	err := row.Scan(&c.ID, &c.Secret, &c.Allow, &c.MaxHosts, &c.Enabled, &c.CreatedAt, &c.LastSeenAt, &c.ReinstallRequired)
+	err := row.Scan(&c.ID, &c.Secret, &c.Allow, &c.MaxHosts, &c.Enabled, &c.CreatedAt, &c.LastSeenAt, &c.ReinstallRequired, &c.AgentVersion)
 	return c, err
 }
 
@@ -247,8 +247,9 @@ func (s *Store) SetSetting(ctx context.Context, key, value string, now time.Time
 	return err
 }
 
-func (s *Store) TouchCrawler(ctx context.Context, id string, now time.Time) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE crawlers SET last_seen_at = $2 WHERE id = $1`, id, now)
+func (s *Store) TouchCrawler(ctx context.Context, id string, now time.Time, agentVersion string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE crawlers SET last_seen_at = $2,
+		agent_version = CASE WHEN $3 = '' THEN agent_version ELSE $3 END WHERE id = $1`, id, now, agentVersion)
 	if err == nil && tag.RowsAffected() == 0 {
 		return store.ErrNotFound
 	}

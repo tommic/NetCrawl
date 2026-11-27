@@ -191,7 +191,7 @@ func (s *Store) SetSetting(_ context.Context, key, value string, _ time.Time) er
 	return nil
 }
 
-func (s *Store) TouchCrawler(_ context.Context, id string, now time.Time) error {
+func (s *Store) TouchCrawler(_ context.Context, id string, now time.Time, agentVersion string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.crawlers[id]
@@ -200,6 +200,9 @@ func (s *Store) TouchCrawler(_ context.Context, id string, now time.Time) error 
 	}
 	t := now
 	c.LastSeenAt = &t
+	if agentVersion != "" {
+		c.AgentVersion = agentVersion
+	}
 	s.crawlers[id] = c
 	return nil
 }

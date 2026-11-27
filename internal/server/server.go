@@ -18,6 +18,7 @@ import (
 	"netcrawler/internal/notify"
 	"netcrawler/internal/protocol"
 	"netcrawler/internal/store"
+	"netcrawler/internal/version"
 )
 
 // Request size limits.
@@ -218,7 +219,8 @@ func (s *Server) handleJobPoll(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	_ = s.st.TouchCrawler(ctx, crawlerID, now)
+	_ = s.st.TouchCrawler(ctx, crawlerID, now, protocol.AgentVersionFromUserAgent(r.UserAgent()))
+	w.Header().Set(protocol.HeaderServerVersion, version.Version)
 	_ = s.st.PurgeNonces(ctx, now.Add(-2*protocol.MaxClockSkew))
 
 	j, found, err := s.st.NextJob(ctx, crawlerID, now)

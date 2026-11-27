@@ -186,10 +186,15 @@ type CrawlerView struct {
 	// ReinstallRequired: the release was changed; the crawler still runs
 	// with its old local limits until it is reinstalled.
 	ReinstallRequired bool `json:"reinstall_required"`
+	// AgentVersion is what the crawler runs ("" before its first poll);
+	// Outdated: another version than the server's.
+	AgentVersion string `json:"agent_version"`
+	Outdated     bool   `json:"outdated"`
 }
 
 func crawlerView(c store.Crawler) CrawlerView {
-	return CrawlerView{c.ID, c.Allow, c.MaxHosts, c.Enabled, c.CreatedAt, c.LastSeenAt, c.ReinstallRequired}
+	return CrawlerView{c.ID, c.Allow, c.MaxHosts, c.Enabled, c.CreatedAt, c.LastSeenAt, c.ReinstallRequired,
+		c.AgentVersion, c.AgentVersion != "" && c.AgentVersion != version.Version}
 }
 
 func (s *Server) handleListCrawlers(w http.ResponseWriter, r *http.Request) {
