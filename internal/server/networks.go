@@ -26,6 +26,9 @@ const (
 	// Important hosts: critical event after an hour missing.
 	DefaultOfflineCriticalMinutes = 60
 	MinOfflineCriticalMinutes     = 5
+	// Service detection (nmap -sV) daily; at most as often as port scans
+	// can run.
+	DefaultServiceIntervalMinutes = 24 * 60
 	DefaultDiscoveryPreset        = "discovery"
 	DefaultScanPreset             = "top100"
 )
@@ -50,7 +53,10 @@ type NetworkRequest struct {
 	OfflineInfoHours        int `json:"offline_info_hours"`
 	OfflineWarnHours        int `json:"offline_warn_hours"`
 	// OfflineCriticalMinutes applies to hosts marked important (default 60).
-	OfflineCriticalMinutes int   `json:"offline_critical_minutes"`
+	OfflineCriticalMinutes int `json:"offline_critical_minutes"`
+	// ServiceIntervalMinutes: how often port scans also identify services
+	// (default daily, at least MinPortscanMinutes).
+	ServiceIntervalMinutes int   `json:"service_interval_minutes"`
 	ReverseDNS             *bool `json:"reverse_dns"`
 	Enabled                *bool `json:"enabled"`
 }
@@ -129,6 +135,7 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 	if req.OfflineCriticalMinutes == 0 {
 		n.OfflineCriticalAfter = max(DefaultOfflineCriticalMinutes*time.Minute, 2*n.DiscoveryInterval)
 	}
+	n.ServiceInterval = time.Duration(def(req.ServiceIntervalMinutes, DefaultServiceIntervalMinutes)) * time.Minute
 	if req.PortscanIntervalMinutes != 0 {
 		n.PortscanInterval = time.Duration(req.PortscanIntervalMinutes) * time.Minute
 	}
@@ -139,6 +146,8 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 		return store.Network{}, invalid("the port scan interval must be at least %d minutes", MinPortscanMinutes)
 	case n.OfflineInfoAfter < time.Hour || n.OfflineWarnAfter < n.OfflineInfoAfter:
 		return store.Network{}, invalid("offline_info_hours must be at least 1 and offline_warn_hours at least offline_info_hours")
+	case n.ServiceInterval < MinPortscanMinutes*time.Minute:
+		return store.Network{}, invalid("service_interval_minutes must be at least %d", MinPortscanMinutes)
 	case n.OfflineCriticalAfter < MinOfflineCriticalMinutes*time.Minute:
 		return store.Network{}, invalid("offline_critical_minutes must be at least %d", MinOfflineCriticalMinutes)
 	case n.OfflineCriticalAfter <= n.DiscoveryInterval:
@@ -181,6 +190,7 @@ func DefaultNetwork() store.Network {
 		OfflineInfoAfter:     DefaultOfflineInfoHours * time.Hour,
 		OfflineWarnAfter:     DefaultOfflineWarnHours * time.Hour,
 		OfflineCriticalAfter: DefaultOfflineCriticalMinutes * time.Minute,
+		ServiceInterval:      DefaultServiceIntervalMinutes * time.Minute,
 		ReverseDNS:           true, Enabled: true,
 	}
 }
@@ -198,6 +208,7 @@ func RequestFromNetwork(n store.Network) NetworkRequest {
 		OfflineInfoHours:        int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:        int(n.OfflineWarnAfter.Hours()),
 		OfflineCriticalMinutes:  int(n.OfflineCriticalAfter.Minutes()),
+		ServiceIntervalMinutes:  int(n.ServiceInterval.Minutes()),
 		ReverseDNS:              &rdns, Enabled: &enabled,
 	}
 }

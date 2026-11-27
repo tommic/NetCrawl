@@ -178,6 +178,10 @@
                 <div class="setting-text"><strong>Portscan</strong><span class="help">Gründlich: Prüft bei allen bekannten Geräten, welche Ports offen sind. Dauert länger. Mindestens alle 15&nbsp;Min.</span></div>
                 <span class="pair"><span class="pre">alle</span><input name="portscan" type="number" min="1" required aria-label="Portscan alle"><select name="portscan_unit" aria-label="Einheit Portscan"><option value="1">Min.</option><option value="60">Std.</option></select></span>
               </div>
+              <div class="setting">
+                <div class="setting-text"><strong>Diensterkennung</strong><span class="help">Ermittelt beim Portscan zusätzlich Software und Version (z.&nbsp;B. „OpenSSH 9.6“). Langsamer und auffälliger als der reine Portscan – Versionen ändern sich selten, einmal am Tag reicht meist. Neue Geräte und „Portscan jetzt“ bekommen sie immer.</span></div>
+                <span class="pair"><span class="pre">alle</span><input name="services" type="number" min="1" required aria-label="Diensterkennung alle"><select name="services_unit" aria-label="Einheit Diensterkennung"><option value="1">Min.</option><option value="60">Std.</option></select></span>
+              </div>
             </fieldset>
 
             <fieldset>

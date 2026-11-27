@@ -42,6 +42,8 @@ type NetworkView struct {
 	OfflineInfoHours         int        `json:"offline_info_hours"`
 	OfflineWarnHours         int        `json:"offline_warn_hours"`
 	OfflineCriticalMinutes   int        `json:"offline_critical_minutes"`
+	ServiceIntervalMinutes   int        `json:"service_interval_minutes"`
+	LastServicesAt           *time.Time `json:"last_services_at,omitempty"`
 	ReverseDNS               bool       `json:"reverse_dns"`
 	Enabled                  bool       `json:"enabled"`
 	CreatedAt                time.Time  `json:"created_at"`
@@ -65,6 +67,8 @@ func networkView(n store.Network, hosts []store.Host) NetworkView {
 		OfflineInfoHours:         int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:         int(n.OfflineWarnAfter.Hours()),
 		OfflineCriticalMinutes:   int(n.OfflineCriticalAfter.Minutes()),
+		ServiceIntervalMinutes:   int(n.ServiceInterval.Minutes()),
+		LastServicesAt:           n.LastServicesAt,
 		ReverseDNS:               n.ReverseDNS, Enabled: n.Enabled, CreatedAt: n.CreatedAt,
 		LastDiscoveryAt: n.LastDiscoveryAt, LastPortscanAt: n.LastPortscanAt,
 		DiscoveryDoneAt: n.DiscoveryDoneAt, PortscanDoneAt: n.PortscanDoneAt, BaselineDone: n.BaselineDone,

@@ -42,7 +42,7 @@ Die Schwellen sind pro Netz einstellbar.
 
 Beim Portscan erkennt der Crawler, welche Software hinter jedem offenen Port läuft (z. B. „OpenSSH 9.6p1“, „nginx 1.24.0“). Ist **nmap** auf dem Crawler installiert, nutzt er `nmap -sV` (genau, kennt tausende Dienste); sonst liest er selbst Banner, HTTP-Header und TLS aus (gängige Dienste wie OpenSSH, nginx, Apache, Postfix, MySQL/MariaDB, FTP). Das Docker-Image des Crawlers bringt nmap mit; bei der Installation per Skript: `sudo apt install nmap`.
 
-Kontaktiert werden nur Ports, die der Portscan gerade offen gefunden hat. Ergebnis: Seite **Dienste** (Software mit Versionen und Geräten, Suche) und im Host-Panel. Abschalten auf dem Crawler: `"no_service_detection": true` in der `agent.json`.
+Die Diensterkennung hat einen eigenen Zeitplan pro Netz („Diensterkennung alle …“, Standard 24 Std.): Der Portscan kann z. B. stündlich laufen, Software und Versionen werden nur einmal am Tag ermittelt – das schont empfindliche Geräte und die Logs. Neue Geräte und „Portscan jetzt“ bekommen sie immer. Kontaktiert werden nur Ports, die der Portscan gerade offen gefunden hat. Ergebnis: Seite **Dienste** (Software mit Versionen und Geräten, Suche) und im Host-Panel. Abschalten auf dem Crawler: `"no_service_detection": true` in der `agent.json`.
 
 ### Benachrichtigung per Discord
 
@@ -169,7 +169,7 @@ docker compose run --rm server network add --crawler lan-1 --name Heimnetz \
   --target 192.168.1.0/24 --deny 192.168.1.1,192.168.1.250-192.168.1.254
 ```
 
-Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen, kritisch für wichtige Geräte nach 60 Minuten. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`, `--offline-critical`. Oder in der Weboberfläche unter „Netze & Crawler“. Der Portscan geht bis hinunter auf 15 Minuten (`--portscan-interval 30m`).
+Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen, kritisch für wichtige Geräte nach 60 Minuten, Diensterkennung einmal am Tag. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`, `--offline-critical`, `--service-interval`. Oder in der Weboberfläche unter „Netze & Crawler“. Der Portscan geht bis hinunter auf 15 Minuten (`--portscan-interval 30m`).
 
 Ein bestehendes Netz ändern – Inventar und Verlauf bleiben erhalten, am Crawler ist nichts zu tun (jeder Job bringt Ziele und Ports mit, die Änderung gilt ab dem nächsten geplanten Scan):
 

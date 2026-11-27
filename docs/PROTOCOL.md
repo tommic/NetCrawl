@@ -68,7 +68,7 @@ Felder für Netz-Jobs des Schedulers:
 - `kind`: `discovery` (wer ist online?) oder `ports` (welche Ports sind offen?). Fehlt das Feld, gilt `ports`.
 - `deny`: Adressen/Bereiche innerhalb der Ziele, die nicht kontaktiert werden.
 - `reverse_dns`: Hostnamen per PTR abfragen – nur wenn auch die lokale Crawler-Konfiguration `reverse_dns: true` hat.
-- `services` (Portscan-Jobs): Dienst und Version hinter den gefundenen offenen Ports erkennen (`nmap -sV`, falls installiert, sonst Banner/HTTP/TLS) und in `details` melden (`service`, `product`, `serviceVersion`, `serviceExtra`, `serviceMethod`). Es werden nur Ports kontaktiert, die der Scan offen gefunden hat; mit `no_service_detection: true` in der lokalen Konfiguration nie.
+- `services` (Portscan-Jobs, wenn die Diensterkennung des Netzes fällig ist): Dienst und Version hinter den gefundenen offenen Ports erkennen (`nmap -sV`, falls installiert, sonst Banner/HTTP/TLS) und in `details` melden (`service`, `product`, `serviceVersion`, `serviceExtra`, `serviceMethod`). Es werden nur Ports kontaktiert, die der Scan offen gefunden hat; mit `no_service_detection: true` in der lokalen Konfiguration nie.
 
 In beiden Arten meldet der Crawler auch Hosts ohne offenen Port, die eine Verbindung aktiv abgelehnt haben (sie sind online).
 

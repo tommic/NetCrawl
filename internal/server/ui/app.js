@@ -638,6 +638,7 @@ function portSummary(list) {
 // units]. The unit select is "<name>_unit" and holds the factor to the API unit.
 const networkPairs = [
   ["discovery", "discovery_interval_minutes", 5], ["portscan", "portscan_interval_minutes", 15],
+  ["services", "service_interval_minutes", 15],
   ["offline_critical", "offline_critical_minutes", 5], ["offline_info", "offline_info_hours", 1],
   ["offline_warn", "offline_warn_hours", 1],
 ];
@@ -781,7 +782,7 @@ async function renderNetworks() {
     cell(tr, n.deny.join(", ") || "–", "mono");
     cell(tr, `${n.hosts_online} / ${n.hosts} online`);
     cell(tr, fmt(n.discovery_done_at) + ` (alle ${n.discovery_interval_minutes} Min.)`);
-    cell(tr, fmt(n.portscan_done_at) + ` (alle ${every(n.portscan_interval_minutes)})`);
+    cell(tr, fmt(n.portscan_done_at) + ` (alle ${every(n.portscan_interval_minutes)}, Dienste alle ${every(n.service_interval_minutes)})`);
     cell(tr, n.enabled ? "ja" : "nein");
     const td = cell(tr, "");
     const edit = el("button", "Bearbeiten", "ghost small");

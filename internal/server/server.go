@@ -244,7 +244,7 @@ func (s *Server) handleJobPoll(w http.ResponseWriter, r *http.Request) {
 		Kind:        j.Kind,
 		Deny:        j.Deny,
 		ReverseDNS:  j.ReverseDNS,
-		Services:    j.Kind == protocol.JobKindPorts,
+		Services:    j.Services,
 		ResultToken: protocol.EncodeKey(j.ResultToken),
 	})
 }

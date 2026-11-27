@@ -14,6 +14,9 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 - Dienste und Versionen (OwnDo #207): Beim Portscan erkennt der Crawler die Software hinter jedem offenen Port –
   mit `nmap -sV`, wenn nmap installiert ist, sonst über Banner, HTTP-Header und TLS (OpenSSH, nginx, Apache,
   Postfix, Exim, MySQL/MariaDB, FTP, Dovecot …). Gespeichert pro Port (Migration 0008).
+- Eigener Zeitplan pro Netz: „Diensterkennung alle …“ (Standard 24 Std., mindestens 15 Min.). Der Portscan kann
+  öfter laufen; nur der fällige Portscan erkennt auch die Dienste. Neue Geräte und „Portscan jetzt“ immer.
+  API: `service_interval_minutes`, Kommandozeile: `--service-interval` (Migration 0009).
 - Neue Seite **Dienste**: Software mit allen Versionen und Anzahl Geräte, darunter alle Dienste einzeln, mit Suche.
   Im Host-Panel steht der Dienst neben jedem Port.
 - Meldungen: andere Version derselben Software → Info, andere Software auf einem Port → Warnung.

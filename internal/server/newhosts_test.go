@@ -93,7 +93,7 @@ func TestNewHostIsPortScannedRightAway(t *testing.T) {
 	for _, j := range jobs {
 		if strings.Join(j.Targets, ",") == "10.0.0.30/32" {
 			found = true
-			if len(j.Ports) != 100 || j.CreatedBy != scheduledActor {
+			if len(j.Ports) != 100 || j.CreatedBy != scheduledActor || !j.Services {
 				t.Errorf("new host job = %+v", j)
 			}
 		}
@@ -110,5 +110,55 @@ func TestNewHostIsPortScannedRightAway(t *testing.T) {
 	discover(map[string]result.Host{"10.0.0.5": {Hostname: "nas"}, "10.0.0.30": {Hostname: "printer"}})
 	if n := len(f.portJobs()); n != 2 {
 		t.Errorf("port scan jobs = %d, want still 2", n)
+	}
+}
+
+// Port scans every hour, service detection only once a day: only the
+// port scan job that is due for it asks the crawler for services.
+func TestServiceDetectionInterval(t *testing.T) {
+	f := newNetFixture(t)
+	ctx := context.Background()
+	c := withCookie(f.login())
+	resp := f.do("POST", "/api/v1/admin/networks", "application/json",
+		`{"crawler_id":"lan-1","name":"Heimnetz","targets":["10.0.0.0/24"],"portscan_interval_minutes":60}`, c)
+	if n := decode[NetworkView](t, resp); resp.StatusCode != http.StatusCreated || n.ServiceIntervalMinutes != 24*60 {
+		t.Fatalf("create network: %d %+v", resp.StatusCode, n)
+	}
+	// A known host and a finished discovery, so port scans are planned.
+	err := f.st.UpdateInventory(ctx, 1, func(n *store.Network, hosts map[string]*store.Host) ([]string, []store.Event, error) {
+		hosts["10.0.0.5"] = &store.Host{FirstSeen: f.now, LastSeen: f.now}
+		t := f.now
+		n.DiscoveryDoneAt, n.BaselineDone = &t, true
+		return []string{"10.0.0.5"}, nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []bool
+	for i := 0; i < 26; i++ {
+		_ = f.server.Tick(ctx)
+		f.now = f.now.Add(61 * time.Minute) // past the job TTL, next scan due
+	}
+	for _, j := range f.portJobs() {
+		got = append(got, j.Services)
+	}
+	with := 0
+	for _, s := range got {
+		if s {
+			with++
+		}
+	}
+	if len(got) < 24 || with != 2 {
+		t.Fatalf("port scan jobs %d, with service detection %d (want 2): %v", len(got), with, got)
+	}
+
+	// "Port scan now" always includes the services.
+	if err := f.server.ScanNow(ctx, "test", 1, protocol.JobKindPorts); err != nil {
+		t.Fatal(err)
+	}
+	jobs := f.portJobs()
+	if newest := jobs[len(jobs)-1]; !newest.Services {
+		t.Errorf("scan now without services: %+v", newest)
 	}
 }

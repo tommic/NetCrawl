@@ -149,6 +149,9 @@ type JobRequest struct {
 	// Kind is "ports" (default) or "discovery".
 	Kind       string `json:"kind"`
 	ReverseDNS bool   `json:"reverse_dns"`
+	// Services asks for service/version detection (port scans only; set
+	// by the scheduler, not via the API).
+	Services bool `json:"-"`
 	// NetworkID links scheduler jobs to their network (not settable via API).
 	NetworkID *int64 `json:"-"`
 }
@@ -214,6 +217,7 @@ func CreateJob(ctx context.Context, st store.Store, actor string, req JobRequest
 	j := store.Job{
 		ID: id, CrawlerID: c.ID, Targets: req.Targets, Deny: req.Deny, Ports: req.Ports, MaxHosts: req.MaxHosts,
 		Kind: req.Kind, ReverseDNS: req.ReverseDNS, NetworkID: req.NetworkID,
+		Services:  req.Services && req.Kind == protocol.JobKindPorts,
 		TimeoutMs: req.TimeoutMs, ResultToken: token, Status: store.JobPending, CreatedBy: actor,
 		CreatedAt: now, ExpiresAt: now.Add(ttl),
 	}

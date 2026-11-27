@@ -32,15 +32,17 @@ func nonNil(v []string) []string {
 
 const networkColumns = `id, crawler_id, name, targets, deny, discovery_ports, scan_ports, discovery_interval_s,
 	portscan_interval_s, offline_info_s, offline_warn_s, offline_critical_s, reverse_dns, enabled, created_at,
-	last_discovery_at, last_portscan_at, discovery_done_at, portscan_done_at, baseline_done`
+	last_discovery_at, last_portscan_at, discovery_done_at, portscan_done_at, baseline_done,
+	service_interval_s, last_services_at`
 
 func scanNetwork(row pgx.Row) (store.Network, error) {
 	var n store.Network
 	var dp, sp []int32
-	var di, pi, oi, ow, oc int
+	var di, pi, oi, ow, oc, si int
 	err := row.Scan(&n.ID, &n.CrawlerID, &n.Name, &n.Targets, &n.Deny, &dp, &sp, &di, &pi, &oi, &ow, &oc,
 		&n.ReverseDNS, &n.Enabled, &n.CreatedAt, &n.LastDiscoveryAt, &n.LastPortscanAt,
-		&n.DiscoveryDoneAt, &n.PortscanDoneAt, &n.BaselineDone)
+		&n.DiscoveryDoneAt, &n.PortscanDoneAt, &n.BaselineDone, &si, &n.LastServicesAt)
+	n.ServiceInterval = dur(si)
 	n.DiscoveryPorts, n.ScanPorts = ints(dp), ints(sp)
 	n.DiscoveryInterval, n.PortscanInterval = dur(di), dur(pi)
 	n.OfflineInfoAfter, n.OfflineWarnAfter, n.OfflineCriticalAfter = dur(oi), dur(ow), dur(oc)
@@ -51,11 +53,11 @@ func (s *Store) CreateNetwork(ctx context.Context, n store.Network) (int64, erro
 	var id int64
 	err := s.pool.QueryRow(ctx, `INSERT INTO networks (crawler_id, name, targets, deny, discovery_ports, scan_ports,
 		discovery_interval_s, portscan_interval_s, offline_info_s, offline_warn_s, reverse_dns, enabled, created_at,
-		offline_critical_s)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+		offline_critical_s, service_interval_s)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
 		n.CrawlerID, n.Name, n.Targets, nonNil(n.Deny), n.DiscoveryPorts, n.ScanPorts,
 		secs(n.DiscoveryInterval), secs(n.PortscanInterval), secs(n.OfflineInfoAfter), secs(n.OfflineWarnAfter),
-		n.ReverseDNS, n.Enabled, n.CreatedAt, secs(n.OfflineCriticalAfter)).Scan(&id)
+		n.ReverseDNS, n.Enabled, n.CreatedAt, secs(n.OfflineCriticalAfter), secs(n.ServiceInterval)).Scan(&id)
 	switch {
 	case isUniqueViolation(err):
 		return 0, store.ErrExists
@@ -90,10 +92,11 @@ func (s *Store) ListNetworks(ctx context.Context) ([]store.Network, error) {
 func (s *Store) UpdateNetworkSettings(ctx context.Context, n store.Network) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE networks SET name = $2, targets = $3, deny = $4, discovery_ports = $5,
 		scan_ports = $6, discovery_interval_s = $7, portscan_interval_s = $8, offline_info_s = $9,
-		offline_warn_s = $10, reverse_dns = $11, enabled = $12, offline_critical_s = $13 WHERE id = $1`,
+		offline_warn_s = $10, reverse_dns = $11, enabled = $12, offline_critical_s = $13,
+		service_interval_s = $14 WHERE id = $1`,
 		n.ID, n.Name, n.Targets, nonNil(n.Deny), n.DiscoveryPorts, n.ScanPorts,
 		secs(n.DiscoveryInterval), secs(n.PortscanInterval), secs(n.OfflineInfoAfter), secs(n.OfflineWarnAfter),
-		n.ReverseDNS, n.Enabled, secs(n.OfflineCriticalAfter))
+		n.ReverseDNS, n.Enabled, secs(n.OfflineCriticalAfter), secs(n.ServiceInterval))
 	if isUniqueViolation(err) {
 		return store.ErrExists
 	}
@@ -103,9 +106,9 @@ func (s *Store) UpdateNetworkSettings(ctx context.Context, n store.Network) erro
 	return err
 }
 
-func (s *Store) UpdateNetworkSchedule(ctx context.Context, id int64, lastDiscovery, lastPortscan *time.Time) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE networks SET last_discovery_at = $2, last_portscan_at = $3 WHERE id = $1`,
-		id, lastDiscovery, lastPortscan)
+func (s *Store) UpdateNetworkSchedule(ctx context.Context, id int64, lastDiscovery, lastPortscan, lastServices *time.Time) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE networks SET last_discovery_at = $2, last_portscan_at = $3, last_services_at = $4
+		WHERE id = $1`, id, lastDiscovery, lastPortscan, lastServices)
 	if err == nil && tag.RowsAffected() == 0 {
 		return store.ErrNotFound
 	}
