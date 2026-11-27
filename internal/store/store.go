@@ -125,9 +125,12 @@ type Network struct {
 	// against completed discovery runs) raises an info / warning event.
 	OfflineInfoAfter time.Duration
 	OfflineWarnAfter time.Duration
-	ReverseDNS       bool
-	Enabled          bool
-	CreatedAt        time.Time
+	// An important host not seen for OfflineCriticalAfter raises a
+	// critical event (usually much sooner than the warning).
+	OfflineCriticalAfter time.Duration
+	ReverseDNS           bool
+	Enabled              bool
+	CreatedAt            time.Time
 
 	// Scheduling state, written by UpdateNetworkSchedule.
 	LastDiscoveryAt *time.Time

@@ -464,6 +464,7 @@ func (s *Store) UpdateNetworkSettings(_ context.Context, n store.Network) error 
 	cur.DiscoveryPorts, cur.ScanPorts = slices.Clone(n.DiscoveryPorts), slices.Clone(n.ScanPorts)
 	cur.DiscoveryInterval, cur.PortscanInterval = n.DiscoveryInterval, n.PortscanInterval
 	cur.OfflineInfoAfter, cur.OfflineWarnAfter = n.OfflineInfoAfter, n.OfflineWarnAfter
+	cur.OfflineCriticalAfter = n.OfflineCriticalAfter
 	cur.ReverseDNS, cur.Enabled = n.ReverseDNS, n.Enabled
 	s.networks[n.ID] = cur
 	return nil

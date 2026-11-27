@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"netcrawler/internal/inventory"
+	"netcrawler/internal/ports"
 	"netcrawler/internal/server"
 	"netcrawler/internal/store"
 )
@@ -47,7 +48,7 @@ func TestInventoryFlow(t *testing.T) {
 
 	n, err := server.CreateNetwork(ctx, e.st, "e2e", server.NetworkRequest{
 		CrawlerID: crawlerID, Name: "Loopback", Targets: []string{"127.0.0.1-127.0.0.3"}, Deny: []string{"127.0.0.3"},
-		DiscoveryPorts: []int{portA, portB}, ScanPorts: []int{portA, portB},
+		DiscoveryPorts: []int{portA, portB}, ScanPorts: ports.Specs([]int{portA, portB}),
 	}, e.srvClock.Now())
 	if err != nil {
 		t.Fatal(err)

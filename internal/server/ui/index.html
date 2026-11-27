@@ -118,10 +118,10 @@
           <select id="host-network"><option value="0">Alle Netze</option></select>
         </div>
         <table>
-          <thead><tr><th>Netz</th><th>IP</th><th>Name</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte lösen nach der Warnschwelle eine kritische Meldung aus">Wichtig</th></tr></thead>
+          <thead><tr><th>Netz</th><th>IP</th><th>Name</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte werden schnell als „Kritisch“ gemeldet, wenn sie fehlen">Wichtig&nbsp;ⓘ</th></tr></thead>
           <tbody id="hosts"></tbody>
         </table>
-        <p class="hint">Host anklicken für Details und einen eigenen Namen. <span class="custom-name">Kursiv</span> = eigener Name (Maus darüber zeigt den gefundenen Hostnamen).</p>
+        <p class="hint">Host anklicken für Details und einen eigenen Namen. <span class="custom-name">Kursiv</span> = eigener Name (Maus darüber zeigt den gefundenen Hostnamen).<br><strong>Wichtig</strong> = Fehlt das Gerät, gibt es schnell eine <em>kritische</em> Meldung (Schwelle pro Netz einstellbar) – gedacht für Router, NAS, Server, Kameras.</p>
         <dialog id="host-dialog" class="drawer" aria-labelledby="host-title"><div id="host-detail"></div></dialog>
       </div>
     </div>
@@ -130,67 +130,88 @@
         <dialog id="network-dialog" class="drawer" aria-labelledby="network-title">
           <form id="network-edit" class="drawer-body">
             <div class="title-row detail-head"><h3 id="network-title">Netz bearbeiten</h3><button type="button" id="network-edit-close" class="ghost small">Schließen</button></div>
-            <p class="hint">Crawler: <strong id="network-edit-crawler"></strong>. Inventar und Verlauf bleiben erhalten. Die neuen Einstellungen gelten ab dem nächsten geplanten Scan – am Crawler ist nichts zu tun.</p>
-            <label>Name <input name="name" required maxlength="64"></label>
-            <label>Bereich <input name="targets" required spellcheck="false"></label>
-            <label>Ausnehmen (Deny) <input name="deny" spellcheck="false" placeholder="leer = nichts ausnehmen"></label>
-            <div class="row">
-              <label>Erkennung alle (Min.) <input name="discovery" type="number" min="5" required></label>
-              <label>Portscan alle
-                <span class="pair"><input name="portscan" type="number" min="1" required><select name="portscan_unit" aria-label="Einheit"><option value="60">Std.</option><option value="1">Min.</option></select></span>
-              </label>
+            <p class="hint" id="network-edit-intro"></p>
+
+            <fieldset>
+              <legend>Netz</legend>
+              <label id="network-crawler-field">Crawler <select name="crawler_id" class="crawler-select" required></select>
+                <span class="help">Der Crawler, der dieses Netz scannt. Er darf nur Adressen aus seiner Freigabe scannen.</span></label>
+              <label>Name <input name="name" required maxlength="64" placeholder="Heimnetz"></label>
+              <label>Bereich <input name="targets" required spellcheck="false" placeholder="192.168.1.0/24">
+                <span class="help">Was gescannt wird: einzelne Adresse (<code>192.168.1.20</code>), Netz (<code>192.168.1.0/24</code>) oder Bereich (<code>192.168.1.20-192.168.1.80</code>). Mehrere mit Komma trennen.</span></label>
+              <label>Ausnehmen <input name="deny" spellcheck="false" placeholder="leer = nichts ausnehmen">
+                <span class="help">Adressen aus dem Bereich, die <strong>nie</strong> gescannt werden, z.&nbsp;B. ein empfindlicher Drucker: <code>192.168.1.1, 192.168.1.200-192.168.1.210</code>. Gleiche Schreibweise wie beim Bereich.</span></label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Zeitplan</legend>
+              <div class="setting">
+                <div class="setting-text"><strong>Host-Erkennung</strong><span class="help">Schneller Rundgang: Welche Geräte antworten? Findet neue und verschwundene Geräte. Neue Geräte werden sofort portgescannt.</span></div>
+                <span class="pair"><span class="pre">alle</span><input name="discovery" type="number" min="1" required aria-label="Host-Erkennung alle"><select name="discovery_unit" aria-label="Einheit Host-Erkennung"><option value="1">Min.</option><option value="60">Std.</option></select></span>
+              </div>
+              <div class="setting">
+                <div class="setting-text"><strong>Portscan</strong><span class="help">Gründlich: Prüft bei allen bekannten Geräten, welche Ports offen sind. Dauert länger. Mindestens alle 15&nbsp;Min.</span></div>
+                <span class="pair"><span class="pre">alle</span><input name="portscan" type="number" min="1" required aria-label="Portscan alle"><select name="portscan_unit" aria-label="Einheit Portscan"><option value="1">Min.</option><option value="60">Std.</option></select></span>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Ports beim Portscan</legend>
+              <label>Auswahl
+                <select name="scan_preset">
+                  <!-- presets are filled in from the server -->
+                  <option value="custom">Eigene Ports …</option>
+                </select></label>
+              <details class="help-more port-list" id="preset-info"><summary id="preset-count"></summary><p class="mono small" id="preset-ports"></p></details>
+              <label id="custom-ports-field">Eigene Ports <input name="scan_ports" spellcheck="false" placeholder="22, 80, 443, 8000-8100">
+                <span class="help">Einzelne Ports und Bereiche, mit Komma getrennt.</span></label>
+              <details class="help-more"><summary>Was ist was?</summary>
+                <p>Die Auswahllisten sind fest im Server eingebaut. <strong>Top 100</strong> entspricht <code>nmap --top-ports 100</code> und deckt die meisten Dienste im Heimnetz ab. Wer gezielt bestimmte Ports braucht, nimmt „Eigene Ports“ – hier oder auf der Kommandozeile mit <code>network update --id N --scan-ports 22,80,8000-8100</code>.</p>
+                <p>Die Host-Erkennung nutzt immer ihre eigene kurze Liste (<span id="discovery-ports" class="tip"></span>).</p>
+              </details>
+            </fieldset>
+
+            <fieldset>
+              <legend>Meldungen bei fehlenden Geräten</legend>
+              <p class="help">Gezählt ab der letzten Host-Erkennung, in der das Gerät noch geantwortet hat. Fällt der Crawler aus, gibt es also keine Fehlalarme. Kommt das Gerät zurück, meldet NetCrawl „wieder erreichbar“.</p>
+              <div class="setting">
+                <div class="setting-text"><strong>Wichtige Geräte: Kritisch</strong><span class="help">Für Geräte, die im Inventar als <em>wichtig</em> markiert sind (Router, NAS, Server, Kameras): schnelle Meldung als „Kritisch“. Muss länger sein als die Host-Erkennung, damit ein einzelner verpasster Rundgang keinen Alarm auslöst.</span></div>
+                <span class="pair"><span class="pre">nach</span><input name="offline_critical" type="number" min="1" required aria-label="Kritisch nach"><select name="offline_critical_unit" aria-label="Einheit Kritisch"><option value="1">Min.</option><option value="60">Std.</option></select></span>
+              </div>
+              <div class="setting">
+                <div class="setting-text"><strong>Info</strong><span class="help">Kurz weg – z.&nbsp;B. Handy nicht zu Hause.</span></div>
+                <span class="pair"><span class="pre">nach</span><input name="offline_info" type="number" min="1" required aria-label="Info nach"><select name="offline_info_unit" aria-label="Einheit Info"><option value="1">Std.</option><option value="24">Tagen</option></select></span>
+              </div>
+              <div class="setting">
+                <div class="setting-text"><strong>Warnung</strong><span class="help">Lange weg – lohnt einen Blick, ob das Gerät noch gebraucht wird.</span></div>
+                <span class="pair"><span class="pre">nach</span><input name="offline_warn" type="number" min="1" required aria-label="Warnung nach"><select name="offline_warn_unit" aria-label="Einheit Warnung"><option value="1">Std.</option><option value="24">Tagen</option></select></span>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Optionen</legend>
+              <label class="inline"><input type="checkbox" name="reverse_dns"> <span>Hostnamen per DNS nachschlagen<span class="help">Zeigt z.&nbsp;B. „nas.fritz.box“ statt nur der IP.</span></span></label>
+              <label class="inline"><input type="checkbox" name="enabled"> <span>Netz aktiv<span class="help">Ausgeschaltet wird nicht gescannt; Inventar und Verlauf bleiben.</span></span></label>
+            </fieldset>
+
+            <div class="drawer-actions">
+              <div class="unsaved" id="network-unsaved" hidden role="alert">
+                <span>Es gibt ungespeicherte Änderungen.</span>
+                <button type="button" id="network-discard" class="ghost small">Verwerfen</button>
+                <button type="button" id="network-keep" class="small">Weiter bearbeiten</button>
+              </div>
+              <p id="network-edit-msg" hidden></p>
+              <div class="row"><button type="submit" id="network-submit">Speichern</button><button type="button" id="network-cancel" class="ghost">Abbrechen</button></div>
             </div>
-            <label>Ports beim Portscan
-              <select name="scan_preset">
-                <option value="top100">Top 100</option>
-                <option value="common">Common (17)</option>
-                <option value="web">Web</option>
-                <option value="database">Datenbanken</option>
-                <option value="tiny">Tiny (22, 80, 443)</option>
-                <option value="custom" hidden>Eigene Auswahl (unverändert)</option>
-              </select>
-            </label>
-            <div class="row">
-              <label>Offline-Info nach (Std.) <input name="offline_info" type="number" min="1" required></label>
-              <label>Offline-Warnung nach (Std.) <input name="offline_warn" type="number" min="1" required></label>
-            </div>
-            <label class="inline"><input type="checkbox" name="reverse_dns"> Hostnamen per DNS</label>
-            <label class="inline"><input type="checkbox" name="enabled"> Netz aktiv (wird gescannt)</label>
-            <div class="row"><button type="submit">Speichern</button></div>
-            <p id="network-edit-msg" hidden></p>
           </form>
         </dialog>
       <div class="card">
-        <h2>Netze</h2>
+        <div class="title-row"><h2>Netze</h2><button type="button" id="network-new">Netz anlegen</button></div>
         <table>
           <thead><tr><th>Name</th><th>Crawler</th><th>Bereich</th><th>Ausgenommen</th><th>Hosts</th><th>Letzte Erkennung</th><th>Letzter Portscan</th><th>Aktiv</th><th></th></tr></thead>
           <tbody id="networks"></tbody>
         </table>
         <p class="hint">Host-Erkennung und Portscan laufen automatisch nach Zeitplan. „Jetzt“ startet sie sofort (der Crawler holt den Job beim nächsten Abfragen ab).</p>
-      </div>
-      <div class="card">
-        <h2>Neues Netz</h2>
-        <form id="network-form" class="row">
-          <label>Crawler <select name="crawler_id" class="crawler-select" required></select></label>
-          <label>Name <input name="name" placeholder="Heimnetz" required></label>
-          <label>Bereich <input name="targets" placeholder="192.168.1.0/24" required></label>
-          <label>Ausnehmen (Deny) <input name="deny" placeholder="192.168.1.1, 192.168.1.200-192.168.1.210"></label>
-          <label>Erkennung alle (Min.) <input name="discovery" type="number" min="5" value="30" required></label>
-          <label>Portscan alle
-            <span class="pair"><input name="portscan" type="number" min="1" value="24" required><select name="portscan_unit" aria-label="Einheit"><option value="60">Std.</option><option value="1">Min.</option></select></span>
-          </label>
-          <label>Ports beim Portscan
-            <select name="scan_preset">
-              <option value="top100">Top 100</option>
-              <option value="common">Common (17)</option>
-              <option value="web">Web</option>
-              <option value="database">Datenbanken</option>
-              <option value="tiny">Tiny (22, 80, 443)</option>
-            </select>
-          </label>
-          <label class="inline"><input type="checkbox" name="reverse_dns" checked> Hostnamen per DNS</label>
-          <button type="submit">Netz anlegen</button>
-        </form>
         <p id="network-msg" hidden></p>
       </div>
     

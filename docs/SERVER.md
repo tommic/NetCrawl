@@ -26,8 +26,9 @@ Ereignisse (Weboberfläche, CLI, JSONL-Log, Discord)
 | Ereignis | Stufe |
 |---|---|
 | neuer Host | Info |
+| als „wichtig“ markiertes Gerät seit 60 Min. nicht gesehen | **Kritisch** |
 | Host seit 24 h nicht gesehen | Info |
-| Host seit 7 Tagen nicht gesehen | Warnung, **kritisch** bei als „wichtig“ markierten Geräten |
+| Host seit 7 Tagen nicht gesehen | Warnung |
 | Host wieder erreichbar | Info |
 | Hostname geändert | Info |
 | Port neu offen | **Warnung** |
@@ -77,7 +78,7 @@ Im Browser unter `http://127.0.0.1:8080` anmelden. Unter „Crawler“ lässt si
 
 ## Weboberfläche
 
-Unter `/` (Menü links, auf dem Handy oben): **Übersicht** (Hosts online, neue Hosts und Warnungen der letzten 24 h, Crawler offline, neueste Ereignisse, Netzwerk-Status, „Erkennung jetzt“/„Portscan jetzt“ für alle Netze), **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung; Klick öffnet Details und eigenen Namen), **Netze & Crawler** (Netze anlegen, Crawler anlegen mit Installationsbefehl, Status online/offline, Freigabe ändern, deaktivieren), **Benachrichtigungen** (Discord) und **Administration** (einzelne Jobs, Job-Verlauf, Audit-Log). Dunkles Design, mit dem Schalter unten im Menü auf hell umschaltbar (merkt sich der Browser). Unten im Menü steht die Server-Version. Auf sehr breiten Bildschirmen bleibt die Oberfläche bei 1760 px Breite zentriert. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
+Unter `/` (Menü links, auf dem Handy oben): **Übersicht** (Hosts online, neue Hosts und Warnungen der letzten 24 h, Crawler offline, neueste Ereignisse, Netzwerk-Status, „Erkennung jetzt“/„Portscan jetzt“ für alle Netze), **Ereignisse** (mit Zähler für Warnungen der letzten 24 h), **Inventar** (Hosts mit Status, offenen Ports, „wichtig“-Markierung; Klick öffnet Details, eigenen Namen und den Schalter „Wichtiges Gerät“), **Netze & Crawler** (Netze anlegen und bearbeiten in einem Panel mit Erklärungen zu jeder Einstellung, Crawler anlegen mit Installationsbefehl, Status online/offline, Freigabe ändern, deaktivieren), **Benachrichtigungen** (Discord) und **Administration** (einzelne Jobs, Job-Verlauf, Audit-Log). Dunkles Design, mit dem Schalter unten im Menü auf hell umschaltbar (merkt sich der Browser). Unten im Menü steht die Server-Version. Auf sehr breiten Bildschirmen bleibt die Oberfläche bei 1760 px Breite zentriert. Die Oberfläche nutzt nur die Admin-API, lädt nichts von außen und läuft unter einer strikten Content-Security-Policy. `serve --embeddable` erlaubt die Anzeige in fremden Frames und ist **nur für Testumgebungen** gedacht.
 
 ## Einrichtung für ein echtes Netz
 
@@ -160,7 +161,7 @@ docker compose run --rm server network add --crawler lan-1 --name Heimnetz \
   --target 192.168.1.0/24 --deny 192.168.1.1,192.168.1.250-192.168.1.254
 ```
 
-Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`. Oder in der Weboberfläche unter „Netze & Crawler“. Der Portscan geht bis hinunter auf 15 Minuten (`--portscan-interval 30m`).
+Standards: Erkennung alle 30 Minuten (Ports: 22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078), Portscan alle 24 Stunden (Top 100), Info nach 24 h, Warnung nach 7 Tagen, kritisch für wichtige Geräte nach 60 Minuten. Ändern mit `--discovery-interval`, `--portscan-interval`, `--scan-preset`, `--scan-ports`, `--discovery-ports`, `--offline-info`, `--offline-warn`, `--offline-critical`. Oder in der Weboberfläche unter „Netze & Crawler“. Der Portscan geht bis hinunter auf 15 Minuten (`--portscan-interval 30m`).
 
 Ein bestehendes Netz ändern – Inventar und Verlauf bleiben erhalten, am Crawler ist nichts zu tun (jeder Job bringt Ziele und Ports mit, die Änderung gilt ab dem nächsten geplanten Scan):
 
@@ -203,6 +204,7 @@ Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `craw
 | `POST` | `/api/v1/admin/networks/{id}/scan` | `{"kind": "discovery"}` oder `{"kind": "ports"}` sofort |
 | `GET` | `/api/v1/admin/hosts?network_id=` | Inventar |
 | `POST` | `/api/v1/admin/hosts/important` | `{"network_id", "ip", "important"}` |
+| `GET` | `/api/v1/admin/network-options` | eingebaute Port-Auswahlen mit ihren Ports und die Standardwerte für neue Netze |
 | `POST` | `/api/v1/admin/hosts/name` | `{"network_id", "ip", "name"}` – eigener Name (max. 64 Zeichen, `""` entfernt ihn) |
 | `GET` | `/api/v1/admin/events?network_id=&ip=&baseline=1&limit=` | Ereignisse, neueste zuerst |
 | `GET`/`PUT` | `/api/v1/admin/notifications` | Discord-Einstellungen (`discord_url`, `min_severity`, `enabled`, `clear_discord_url`); die URL wird nie zurückgegeben |

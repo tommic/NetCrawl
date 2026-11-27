@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"netcrawler/internal/ports"
 	"netcrawler/internal/store"
 )
 
@@ -21,6 +22,7 @@ func (s *Server) registerInventoryRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/hosts", s.admin(s.handleListHosts))
 	mux.Handle("POST /api/v1/admin/hosts/important", s.admin(s.handleSetImportant))
 	mux.Handle("POST /api/v1/admin/hosts/name", s.admin(s.handleSetHostName))
+	mux.Handle("GET /api/v1/admin/network-options", s.admin(s.handleNetworkOptions))
 	mux.Handle("GET /api/v1/admin/events", s.admin(s.handleListEvents))
 }
 
@@ -39,6 +41,7 @@ type NetworkView struct {
 	ScanPreset               string     `json:"scan_preset"`
 	OfflineInfoHours         int        `json:"offline_info_hours"`
 	OfflineWarnHours         int        `json:"offline_warn_hours"`
+	OfflineCriticalMinutes   int        `json:"offline_critical_minutes"`
 	ReverseDNS               bool       `json:"reverse_dns"`
 	Enabled                  bool       `json:"enabled"`
 	CreatedAt                time.Time  `json:"created_at"`
@@ -61,6 +64,7 @@ func networkView(n store.Network, hosts []store.Host) NetworkView {
 		ScanPreset:               scanPreset(n.ScanPorts),
 		OfflineInfoHours:         int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:         int(n.OfflineWarnAfter.Hours()),
+		OfflineCriticalMinutes:   int(n.OfflineCriticalAfter.Minutes()),
 		ReverseDNS:               n.ReverseDNS, Enabled: n.Enabled, CreatedAt: n.CreatedAt,
 		LastDiscoveryAt: n.LastDiscoveryAt, LastPortscanAt: n.LastPortscanAt,
 		DiscoveryDoneAt: n.DiscoveryDoneAt, PortscanDoneAt: n.PortscanDoneAt, BaselineDone: n.BaselineDone,
@@ -87,6 +91,29 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// PortPreset is one built-in port selection, as shown in the network form.
+type PortPreset struct {
+	Name  string `json:"name"`
+	Ports []int  `json:"ports"`
+}
+
+// NetworkOptions is what the network form needs from the server: the
+// built-in port presets and the defaults of a new network.
+type NetworkOptions struct {
+	Presets  []PortPreset `json:"presets"`
+	Defaults NetworkView  `json:"defaults"`
+}
+
+func (s *Server) handleNetworkOptions(w http.ResponseWriter, _ *http.Request) {
+	out := NetworkOptions{Presets: []PortPreset{}, Defaults: networkView(DefaultNetwork(), nil)}
+	for _, name := range ports.Presets() {
+		if list, ok := ports.Named(name); ok {
+			out.Presets = append(out.Presets, PortPreset{Name: name, Ports: list})
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {

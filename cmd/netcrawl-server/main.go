@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"netcrawler/internal/eventlog"
+	"netcrawler/internal/ports"
 	"netcrawler/internal/server"
 	"netcrawler/internal/store"
 	"netcrawler/internal/store/pgstore"
@@ -57,10 +58,10 @@ Usage:
   netcrawl-server job show JOB_ID
   netcrawl-server network add --crawler ID --name NAME --target CIDR[,..] [--deny IP,..] [--discovery-ports P,..]
                               [--scan-ports P,.. | --scan-preset top100] [--discovery-interval 30m] [--portscan-interval 24h]
-                              [--offline-info 24h] [--offline-warn 168h] [--no-reverse-dns]
+                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--no-reverse-dns]
   netcrawl-server network update --id N [--name NAME] [--target ..] [--deny ..] [--discovery-ports ..]
                               [--scan-ports P,.. | --scan-preset NAME] [--discovery-interval 30m] [--portscan-interval 30m]
-                              [--offline-info 24h] [--offline-warn 168h] [--reverse-dns=false] [--enabled=false]
+                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--reverse-dns=false] [--enabled=false]
                               (changes only the given settings; --deny "" removes all exclusions)
   netcrawl-server network list
   netcrawl-server network scan --id N [--kind discovery|ports]
@@ -348,6 +349,7 @@ func run(args []string) error {
 		scanEvery := fs.Duration("portscan-interval", server.DefaultPortscanHours*time.Hour, "port scan interval")
 		offInfo := fs.Duration("offline-info", server.DefaultOfflineInfoHours*time.Hour, "info event when a host is gone this long")
 		offWarn := fs.Duration("offline-warn", server.DefaultOfflineWarnHours*time.Hour, "warning event when a host is gone this long")
+		offCrit := fs.Duration("offline-critical", server.DefaultOfflineCriticalMinutes*time.Minute, "critical event when an important host is gone this long")
 		noDNS := fs.Bool("no-reverse-dns", false, "do not ask crawlers for PTR lookups")
 		if err := fs.Parse(rest); err != nil {
 			return err
@@ -356,7 +358,8 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		sp, err := parsePorts(*scanPorts)
+		sp := portSpecs(*scanPorts)
+		crit, err := wholeMinutes("offline-critical", *offCrit)
 		if err != nil {
 			return err
 		}
@@ -370,7 +373,8 @@ func run(args []string) error {
 			CrawlerID: *crawler, Name: *name, Targets: splitList(*target), Deny: splitList(*deny),
 			DiscoveryPorts: dp, ScanPorts: sp, ScanPreset: *scanPreset,
 			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalMinutes: int(scanEvery.Minutes()),
-			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()), ReverseDNS: &rdns,
+			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()),
+			OfflineCriticalMinutes: crit, ReverseDNS: &rdns,
 		}, time.Now())
 		if err != nil {
 			return err
@@ -392,6 +396,7 @@ func run(args []string) error {
 		scanEvery := fs.Duration("portscan-interval", 0, "port scan interval (at least 15m)")
 		offInfo := fs.Duration("offline-info", 0, "info event when a host is gone this long")
 		offWarn := fs.Duration("offline-warn", 0, "warning event when a host is gone this long")
+		offCrit := fs.Duration("offline-critical", 0, "critical event when an important host is gone this long")
 		rdns := fs.Bool("reverse-dns", true, "ask crawlers for PTR lookups")
 		enabled := fs.Bool("enabled", true, "scan this network")
 		if err := fs.Parse(rest); err != nil {
@@ -424,9 +429,7 @@ func run(args []string) error {
 			}
 		}
 		if set["scan-ports"] {
-			if req.ScanPorts, err = parsePorts(*scanPorts); err != nil {
-				return err
-			}
+			req.ScanPorts = portSpecs(*scanPorts)
 		}
 		if set["scan-preset"] {
 			req.ScanPorts, req.ScanPreset = nil, *scanPreset
@@ -442,6 +445,11 @@ func run(args []string) error {
 		}
 		if set["offline-warn"] {
 			req.OfflineWarnHours = int(offWarn.Hours())
+		}
+		if set["offline-critical"] {
+			if req.OfflineCriticalMinutes, err = wholeMinutes("offline-critical", *offCrit); err != nil {
+				return err
+			}
 		}
 		if set["reverse-dns"] {
 			req.ReverseDNS = rdns
@@ -755,6 +763,24 @@ func parsePorts(s string) ([]int, error) {
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// wholeMinutes converts a duration flag to minutes, rejecting values that
+// would be rounded (e.g. 30s, 90s) instead of silently changing them.
+func wholeMinutes(flag string, d time.Duration) (int, error) {
+	if d < time.Minute || d%time.Minute != 0 {
+		return 0, fmt.Errorf("--%s must be whole minutes, e.g. 30m or 2h (got %s)", flag, d)
+	}
+	return int(d.Minutes()), nil
+}
+
+// portSpecs reads "22,80,8000-8100"; the server checks the entries.
+func portSpecs(s string) []ports.Spec {
+	var out []ports.Spec
+	for _, p := range splitList(s) {
+		out = append(out, ports.Spec(p))
+	}
+	return out
 }
 
 func joinInts(v []int) string {

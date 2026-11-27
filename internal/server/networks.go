@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,8 +23,11 @@ const (
 	MinPortscanMinutes      = 15
 	DefaultOfflineInfoHours = 24
 	DefaultOfflineWarnHours = 7 * 24
-	DefaultDiscoveryPreset  = "discovery"
-	DefaultScanPreset       = "top100"
+	// Important hosts: critical event after an hour missing.
+	DefaultOfflineCriticalMinutes = 60
+	MinOfflineCriticalMinutes     = 5
+	DefaultDiscoveryPreset        = "discovery"
+	DefaultScanPreset             = "top100"
 )
 
 // NetworkRequest describes a network to scan. Zero values get defaults.
@@ -35,17 +39,20 @@ type NetworkRequest struct {
 	DiscoveryPorts []int    `json:"discovery_ports"`
 	// ScanPreset selects the port scan ports if ScanPorts is empty
 	// (default "top100").
-	ScanPreset              string `json:"scan_preset"`
-	ScanPorts               []int  `json:"scan_ports"`
-	DiscoveryIntervalMinute int    `json:"discovery_interval_minutes"`
+	ScanPreset string `json:"scan_preset"`
+	// ScanPorts takes single ports and ranges ("8000-8100").
+	ScanPorts               []ports.Spec `json:"scan_ports"`
+	DiscoveryIntervalMinute int          `json:"discovery_interval_minutes"`
 	// PortscanIntervalMinutes wins over PortscanIntervalHours (kept for
 	// older clients).
-	PortscanIntervalMinutes int   `json:"portscan_interval_minutes"`
-	PortscanIntervalHours   int   `json:"portscan_interval_hours"`
-	OfflineInfoHours        int   `json:"offline_info_hours"`
-	OfflineWarnHours        int   `json:"offline_warn_hours"`
-	ReverseDNS              *bool `json:"reverse_dns"`
-	Enabled                 *bool `json:"enabled"`
+	PortscanIntervalMinutes int `json:"portscan_interval_minutes"`
+	PortscanIntervalHours   int `json:"portscan_interval_hours"`
+	OfflineInfoHours        int `json:"offline_info_hours"`
+	OfflineWarnHours        int `json:"offline_warn_hours"`
+	// OfflineCriticalMinutes applies to hosts marked important (default 60).
+	OfflineCriticalMinutes int   `json:"offline_critical_minutes"`
+	ReverseDNS             *bool `json:"reverse_dns"`
+	Enabled                *bool `json:"enabled"`
 }
 
 // buildNetwork validates a request against the crawler's release and
@@ -65,7 +72,12 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 	if len(req.DiscoveryPorts) == 0 {
 		req.DiscoveryPorts, _ = ports.Resolve(DefaultDiscoveryPreset, nil)
 	}
-	if len(req.ScanPorts) == 0 {
+	var scanPorts []int
+	if len(req.ScanPorts) > 0 {
+		if scanPorts, err = ports.Resolve(ports.PresetCustom, req.ScanPorts); err != nil {
+			return store.Network{}, invalid("scan_ports: %v", err)
+		}
+	} else {
 		preset := req.ScanPreset
 		if preset == "" {
 			preset = DefaultScanPreset
@@ -77,7 +89,7 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 		if len(list) == 0 || len(list) > scope.MaxPortsPerJob {
 			return store.Network{}, invalid("scan_preset %q is not usable for scheduled scans", preset)
 		}
-		req.ScanPorts = list
+		scanPorts = list
 	}
 	allow, err := scope.ParseAllowlist(c.Allow)
 	if err != nil {
@@ -87,7 +99,7 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 	if err != nil {
 		return store.Network{}, invalid("%v", err)
 	}
-	if _, err := scope.Check(scope.Request{Targets: req.Targets, MaxHosts: hosts, Ports: req.ScanPorts}, allow, c.MaxHosts); err != nil {
+	if _, err := scope.Check(scope.Request{Targets: req.Targets, MaxHosts: hosts, Ports: scanPorts}, allow, c.MaxHosts); err != nil {
 		return store.Network{}, invalid("scan ports: %v", err)
 	}
 	for _, d := range req.Deny {
@@ -103,13 +115,19 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 	}
 	n := store.Network{
 		CrawlerID: c.ID, Name: req.Name, Targets: req.Targets, Deny: req.Deny,
-		DiscoveryPorts: req.DiscoveryPorts, ScanPorts: req.ScanPorts,
+		DiscoveryPorts: req.DiscoveryPorts, ScanPorts: scanPorts,
 		DiscoveryInterval: time.Duration(def(req.DiscoveryIntervalMinute, DefaultDiscoveryMinutes)) * time.Minute,
 		PortscanInterval:  time.Duration(def(req.PortscanIntervalHours, DefaultPortscanHours)) * time.Hour,
 		OfflineInfoAfter:  time.Duration(def(req.OfflineInfoHours, DefaultOfflineInfoHours)) * time.Hour,
 		OfflineWarnAfter:  time.Duration(def(req.OfflineWarnHours, DefaultOfflineWarnHours)) * time.Hour,
 		ReverseDNS:        req.ReverseDNS == nil || *req.ReverseDNS,
 		Enabled:           req.Enabled == nil || *req.Enabled,
+	}
+	// Without a value: 60 min, but always two discovery runs, so one missed
+	// run is never a critical alarm.
+	n.OfflineCriticalAfter = time.Duration(req.OfflineCriticalMinutes) * time.Minute
+	if req.OfflineCriticalMinutes == 0 {
+		n.OfflineCriticalAfter = max(DefaultOfflineCriticalMinutes*time.Minute, 2*n.DiscoveryInterval)
 	}
 	if req.PortscanIntervalMinutes != 0 {
 		n.PortscanInterval = time.Duration(req.PortscanIntervalMinutes) * time.Minute
@@ -121,6 +139,11 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 		return store.Network{}, invalid("the port scan interval must be at least %d minutes", MinPortscanMinutes)
 	case n.OfflineInfoAfter < time.Hour || n.OfflineWarnAfter < n.OfflineInfoAfter:
 		return store.Network{}, invalid("offline_info_hours must be at least 1 and offline_warn_hours at least offline_info_hours")
+	case n.OfflineCriticalAfter < MinOfflineCriticalMinutes*time.Minute:
+		return store.Network{}, invalid("offline_critical_minutes must be at least %d", MinOfflineCriticalMinutes)
+	case n.OfflineCriticalAfter <= n.DiscoveryInterval:
+		// One missed discovery run must not raise a critical alarm.
+		return store.Network{}, invalid("offline_critical_minutes must be longer than the discovery interval (%d min)", int(n.DiscoveryInterval.Minutes()))
 	}
 	return n, nil
 }
@@ -146,6 +169,22 @@ func CreateNetwork(ctx context.Context, st store.Store, actor string, req Networ
 	return n, nil
 }
 
+// DefaultNetwork holds the settings a new network gets when a request
+// leaves them out (shown in the "new network" form).
+func DefaultNetwork() store.Network {
+	discovery, _ := ports.Resolve(DefaultDiscoveryPreset, nil)
+	scan, _ := ports.Resolve(DefaultScanPreset, nil)
+	return store.Network{
+		Targets: []string{}, Deny: []string{}, DiscoveryPorts: discovery, ScanPorts: scan,
+		DiscoveryInterval:    DefaultDiscoveryMinutes * time.Minute,
+		PortscanInterval:     DefaultPortscanHours * time.Hour,
+		OfflineInfoAfter:     DefaultOfflineInfoHours * time.Hour,
+		OfflineWarnAfter:     DefaultOfflineWarnHours * time.Hour,
+		OfflineCriticalAfter: DefaultOfflineCriticalMinutes * time.Minute,
+		ReverseDNS:           true, Enabled: true,
+	}
+}
+
 // RequestFromNetwork returns a request that keeps all of n's settings, as
 // a base for changing single fields (PUT replaces all settings).
 func RequestFromNetwork(n store.Network) NetworkRequest {
@@ -153,11 +192,12 @@ func RequestFromNetwork(n store.Network) NetworkRequest {
 	return NetworkRequest{
 		CrawlerID: n.CrawlerID, Name: n.Name,
 		Targets: append([]string(nil), n.Targets...), Deny: append([]string(nil), n.Deny...),
-		DiscoveryPorts: append([]int(nil), n.DiscoveryPorts...), ScanPorts: append([]int(nil), n.ScanPorts...),
+		DiscoveryPorts: append([]int(nil), n.DiscoveryPorts...), ScanPorts: ports.Specs(n.ScanPorts),
 		DiscoveryIntervalMinute: int(n.DiscoveryInterval.Minutes()),
 		PortscanIntervalMinutes: int(n.PortscanInterval.Minutes()),
 		OfflineInfoHours:        int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:        int(n.OfflineWarnAfter.Hours()),
+		OfflineCriticalMinutes:  int(n.OfflineCriticalAfter.Minutes()),
 		ReverseDNS:              &rdns, Enabled: &enabled,
 	}
 }
@@ -165,21 +205,7 @@ func RequestFromNetwork(n store.Network) NetworkRequest {
 // scanPreset names the preset whose ports are exactly list, or "custom".
 func scanPreset(list []int) string {
 	for _, name := range ports.Presets() {
-		if name == ports.PresetAll {
-			continue // never used for scheduled scans
-		}
-		p, err := ports.Resolve(name, nil)
-		if err != nil || len(p) != len(list) {
-			continue
-		}
-		same := true
-		for i := range p {
-			if p[i] != list[i] {
-				same = false
-				break
-			}
-		}
-		if same {
+		if p, ok := ports.Named(name); ok && slices.Equal(p, list) {
 			return name
 		}
 	}

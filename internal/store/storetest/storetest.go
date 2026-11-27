@@ -308,7 +308,7 @@ func addNetwork(t *testing.T, s store.Store, crawlerID, name string) store.Netwo
 		CrawlerID: crawlerID, Name: name, Targets: []string{"127.0.0.0/30"}, Deny: []string{"127.0.0.3"},
 		DiscoveryPorts: []int{22, 80}, ScanPorts: []int{22, 80, 443},
 		DiscoveryInterval: 30 * time.Minute, PortscanInterval: 24 * time.Hour,
-		OfflineInfoAfter: 24 * time.Hour, OfflineWarnAfter: 7 * 24 * time.Hour,
+		OfflineInfoAfter: 24 * time.Hour, OfflineWarnAfter: 7 * 24 * time.Hour, OfflineCriticalAfter: time.Hour,
 		ReverseDNS: true, Enabled: true, CreatedAt: t0,
 	}
 	id, err := s.CreateNetwork(context.Background(), n)
@@ -323,27 +323,28 @@ func testNetworks(t *testing.T, s store.Store) {
 	n := addNetwork(t, s, "lab-1", "Heimnetz")
 	_, err := s.CreateNetwork(ctx, store.Network{CrawlerID: "lab-1", Name: "Heimnetz", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
-		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, CreatedAt: t0})
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, CreatedAt: t0})
 	wantErr(t, err, store.ErrExists)
 	_, err = s.CreateNetwork(ctx, store.Network{CrawlerID: "nope", Name: "x", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
-		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, CreatedAt: t0})
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, CreatedAt: t0})
 	wantErr(t, err, store.ErrNotFound)
 
 	got, err := s.Network(ctx, n.ID)
 	mustNoErr(t, err)
 	if got.Name != "Heimnetz" || len(got.Targets) != 1 || len(got.Deny) != 1 || len(got.ScanPorts) != 3 ||
-		got.DiscoveryInterval != 30*time.Minute || got.OfflineWarnAfter != 7*24*time.Hour || !got.ReverseDNS ||
+		got.DiscoveryInterval != 30*time.Minute || got.OfflineWarnAfter != 7*24*time.Hour || got.OfflineCriticalAfter != time.Hour || !got.ReverseDNS ||
 		!got.Enabled || got.BaselineDone || got.LastDiscoveryAt != nil {
 		t.Errorf("network = %+v", got)
 	}
 
 	got.Name, got.Enabled, got.DiscoveryInterval, got.Deny = "Büro", false, time.Hour, nil
+	got.OfflineCriticalAfter = 15 * time.Minute
 	mustNoErr(t, s.UpdateNetworkSettings(ctx, got))
 	ld, lp := t0.Add(time.Minute), t0.Add(2*time.Minute)
 	mustNoErr(t, s.UpdateNetworkSchedule(ctx, n.ID, &ld, &lp))
 	got, _ = s.Network(ctx, n.ID)
-	if got.Name != "Büro" || got.Enabled || got.DiscoveryInterval != time.Hour || len(got.Deny) != 0 ||
+	if got.Name != "Büro" || got.Enabled || got.DiscoveryInterval != time.Hour || len(got.Deny) != 0 || got.OfflineCriticalAfter != 15*time.Minute ||
 		got.LastDiscoveryAt == nil || !got.LastDiscoveryAt.Equal(ld) || !got.LastPortscanAt.Equal(lp) {
 		t.Errorf("updated network = %+v", got)
 	}

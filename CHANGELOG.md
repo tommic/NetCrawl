@@ -9,6 +9,24 @@ Solange die Version mit 0 beginnt, kann sich die API noch ändern.
 
 Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zusammengestellt.
 
+## 0.9.0 – 2026-11-27
+
+- Netz-Panel überarbeitet (OwnDo #188): Einstellungen in Gruppen (Netz, Zeitplan, Ports, Meldungen, Optionen),
+  jede mit kurzer Erklärung. Host-Erkennung und Portscan stehen untereinander mit eigener Einheit (Min./Std.),
+  Offline-Schwellen wahlweise in Stunden oder Tagen. „Ausnehmen“ erklärt die Schreibweise.
+- Ports beim Portscan: Die Auswahl zeigt, wie viele Ports sie umfasst; die Liste steht im Tooltip bzw. zum Aufklappen.
+  Neu „Eigene Ports …“ mit Einzelports und Bereichen (`22, 80, 8000-8100`); `scan_ports` in der API und `--scan-ports`
+  auf der Kommandozeile verstehen jetzt auch Bereiche. API: `GET /api/v1/admin/network-options` (Port-Auswahlen und Standardwerte).
+- Ungespeicherte Änderungen gehen nicht mehr verloren: Klick daneben, Esc oder „Schließen“ fragen nach
+  („Verwerfen“ / „Weiter bearbeiten“). Speichern und Abbrechen bleiben unten immer sichtbar.
+- Neue Netze werden im selben Panel angelegt („Netz anlegen“) statt im Formular unten auf der Seite.
+- „Wichtig“ neu gedacht (OwnDo #189): Wichtige Geräte haben eine eigene, kurze Schwelle –
+  „Kritisch“ nach 60 Minuten Fehlen (pro Netz einstellbar, mindestens 5 Minuten) statt erst nach der Warnschwelle (7 Tage).
+  Im Host-Panel per Schalter mit Erklärung setzbar. API: `offline_critical_minutes`, Kommandozeile: `--offline-critical`.
+  Die Schwelle muss länger sein als die Host-Erkennung (ein einzelner verpasster Rundgang löst keinen Alarm aus);
+  ohne Angabe gilt 60 Minuten, mindestens aber zwei Erkennungs-Intervalle. Bestehende Netze bekommen das beim Update automatisch.
+- Meldungstexte: „seit einer Stunde“ statt „seit 1 Stunden“.
+
 ## 0.8.0 – 2026-11-17
 
 - Netze bearbeiten: „Bearbeiten“ unter „Netze & Crawler“ öffnet ein Panel mit allen Einstellungen

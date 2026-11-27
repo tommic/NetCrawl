@@ -221,7 +221,8 @@ func TestScanNowAndUpdate(t *testing.T) {
 	resp := f.do("PUT", "/api/v1/admin/networks/1", "application/json",
 		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"enabled":false,"discovery_interval_minutes":60}`, c)
 	n := decode[NetworkView](t, resp)
-	if resp.StatusCode != 200 || n.Enabled || n.DiscoveryIntervalMinutes != 60 || n.CrawlerID != "lan-1" {
+	// Critical threshold left out: twice the discovery interval (120 min).
+	if resp.StatusCode != 200 || n.Enabled || n.DiscoveryIntervalMinutes != 60 || n.CrawlerID != "lan-1" || n.OfflineCriticalMinutes != 120 {
 		t.Fatalf("update: %d %+v", resp.StatusCode, n)
 	}
 	f.now = f.now.Add(2 * time.Hour)

@@ -78,8 +78,8 @@ function networkName(id) {
   return n ? n.name : "#" + id;
 }
 
-function message(sel, text, isError) {
-  const m = $(sel);
+function message(target, text, isError) {
+  const m = typeof target === "string" ? $(target) : target;
   m.className = isError ? "error" : "ok";
   m.textContent = text;
   m.hidden = false;
@@ -104,6 +104,7 @@ async function showApp(username) {
   $("#sidebar").hidden = false;
   document.body.classList.add("signed-in");
   $("#who").textContent = username;
+  loadNetworkOptions().catch(() => { /* retried when the dialog opens */ });
   await refresh();
 }
 
@@ -309,6 +310,26 @@ function hostStatus(h) {
     : ["offline (" + (severityLabel[h.offline_level] || h.offline_level) + ")", "status-expired"];
 }
 
+// importantBox is a checkbox for h's "important" flag. Table row and
+// detail panel show the same flag, so a change updates every box of h.
+function importantBox(h, onError) {
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = h.important;
+  box.dataset.host = `${h.network_id}/${h.ip}`;
+  box.addEventListener("change", async () => {
+    try {
+      await api("POST", "/api/v1/admin/hosts/important", { network_id: h.network_id, ip: h.ip, important: box.checked });
+      h.important = box.checked;
+      for (const b of $$(`input[data-host="${box.dataset.host}"]`)) b.checked = h.important;
+    } catch (e) {
+      box.checked = !box.checked;
+      if (onError) onError(e);
+    }
+  });
+  return box;
+}
+
 let selectedHost = null; // { network_id, ip }
 
 async function renderHosts() {
@@ -328,16 +349,8 @@ async function renderHosts() {
     cell(tr, fmt(h.first_seen));
     cell(tr, fmt(h.last_seen));
     const td = cell(tr, "");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = h.important;
+    const box = importantBox(h);
     box.addEventListener("click", (ev) => ev.stopPropagation());
-    box.addEventListener("change", async () => {
-      try {
-        await api("POST", "/api/v1/admin/hosts/important", { network_id: h.network_id, ip: h.ip, important: box.checked });
-        h.important = box.checked;
-      } catch { box.checked = !box.checked; }
-    });
     td.appendChild(box);
     const open = () => {
       selectedHost = { network_id: h.network_id, ip: h.ip };
@@ -402,7 +415,6 @@ async function showHost(h) {
   fact("Zuerst gesehen", fmt(h.first_seen));
   fact("Zuletzt gesehen", fmt(h.last_seen));
   fact("Letzter Portscan", h.ports_scanned_at ? fmt(h.ports_scanned_at) : "noch keiner");
-  fact("Wichtig", h.important ? "ja" : "nein");
   const left = el("div", undefined, "detail-col");
   const right = el("div", undefined, "detail-col");
   const cols = el("div", undefined, "detail-cols");
@@ -436,14 +448,21 @@ async function showHost(h) {
     try {
       await api("POST", "/api/v1/admin/hosts/name", { network_id: h.network_id, ip: h.ip, name });
       await renderHosts();
-    } catch (e) {
-      msg.className = "error";
-      msg.textContent = "Fehler: " + e.message;
-      msg.hidden = false;
-    }
+    } catch (e) { message(msg, "Fehler: " + e.message, true); }
   }
   form.addEventListener("submit", (ev) => { ev.preventDefault(); setName(input.value); });
   left.append(form, msg);
+
+  // Important flag: decides how loud a missing device is reported.
+  const net = networks.find((n) => n.id === h.network_id);
+  const critAfter = net ? every(net.offline_critical_minutes) : "der Schwelle des Netzes";
+  const imp = el("label", undefined, "inline");
+  const impBox = importantBox(h, (e) => message(msg, "Fehler: " + e.message, true));
+  const impText = el("span");
+  impText.append(el("strong", "Wichtiges Gerät"),
+    el("span", `Fehlt das Gerät länger als ${critAfter}, meldet NetCrawl das als „Kritisch“ (einstellbar beim Netz). Sinnvoll für Router, NAS, Server oder Kameras.`, "help"));
+  imp.append(impBox, impText);
+  left.appendChild(imp);
 
   // Open ports.
   right.appendChild(el("h3", "Offene Ports"));
@@ -495,55 +514,176 @@ function every(min) {
   return min % 60 === 0 ? `${min / 60} Std.` : `${min} Min.`;
 }
 
-// portscanMinutes reads a "number + unit" pair from a form.
-function portscanMinutes(f) {
-  return parseInt(f.portscan.value, 10) * parseInt(f.portscan_unit.value, 10);
+// ---- network dialog (create and edit) ----
+
+// Port presets and the defaults of a new network come from the server.
+const presetLabels = {
+  top100: "Top 100 – die häufigsten Ports", common: "Häufige Dienste", web: "Web-Server",
+  database: "Datenbanken", tiny: "Minimal – SSH und Web", discovery: "Wie die Host-Erkennung",
+};
+let networkOptions = null; // { presets: name -> ports, defaults }
+let networkOptionsLoad = null;
+
+function loadNetworkOptions() {
+  networkOptionsLoad ||= api("GET", "/api/v1/admin/network-options").then((o) => {
+    networkOptions = { presets: Object.fromEntries(o.presets.map((p) => [p.name, p.ports])), defaults: o.defaults };
+    const sel = $("#network-edit").scan_preset;
+    const custom = sel.querySelector('option[value="custom"]');
+    // Every server preset gets an option (known ones first, with a German
+    // label), so a network using any of them never shows an empty select.
+    const names = [...Object.keys(presetLabels), ...o.presets.map((p) => p.name)];
+    for (const name of new Set(names)) {
+      const ports = networkOptions.presets[name];
+      if (ports) sel.insertBefore(new Option(`${presetLabels[name] || name} (${ports.length})`, name), custom);
+    }
+    const disc = networkOptions.presets.discovery || [];
+    $("#discovery-ports").textContent = `${disc.length} Ports`;
+    $("#discovery-ports").title = portSummary(disc);
+  }).catch((e) => { networkOptionsLoad = null; throw e; });
+  return networkOptionsLoad;
 }
 
-function showNetworkEdit(n) {
+// portSummary writes ports compactly: "22, 80, 8000-8100".
+function portSummary(list) {
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    out.push(j > i + 1 ? `${list[i]}-${list[j]}` : j === i + 1 ? `${list[i]}, ${list[j]}` : String(list[i]));
+    i = j;
+  }
+  return out.join(", ");
+}
+
+// Number + unit pairs in the form: [field name, API key, minimum in API
+// units]. The unit select is "<name>_unit" and holds the factor to the API unit.
+const networkPairs = [
+  ["discovery", "discovery_interval_minutes", 5], ["portscan", "portscan_interval_minutes", 15],
+  ["offline_critical", "offline_critical_minutes", 5], ["offline_info", "offline_info_hours", 1],
+  ["offline_warn", "offline_warn_hours", 1],
+];
+
+// pairMin lets the browser check the server's minimum in the chosen unit.
+function pairMin(f, [k, , min]) {
+  f[k].min = String(Math.ceil(min / parseInt(f[k + "_unit"].value, 10)));
+}
+
+// setPair uses the larger unit when the value fits it evenly (1440 min -> 24 Std.).
+function setPair(input, unit, value) {
+  const big = parseInt(unit.options[1].value, 10);
+  const useBig = value % big === 0;
+  input.value = useBig ? value / big : value;
+  unit.value = useBig ? String(big) : unit.options[0].value;
+}
+
+function showPresetInfo() {
   const f = $("#network-edit");
-  f.dataset.id = String(n.id);
-  $("#network-title").textContent = `Netz „${n.name}“ bearbeiten`;
-  $("#network-edit-crawler").textContent = n.crawler_id;
-  f.name.value = n.name;
-  f.targets.value = n.targets.join(", ");
-  f.deny.value = n.deny.join(", ");
-  f.discovery.value = n.discovery_interval_minutes;
-  const hours = n.portscan_interval_minutes % 60 === 0;
-  f.portscan.value = hours ? n.portscan_interval_minutes / 60 : n.portscan_interval_minutes;
-  f.portscan_unit.value = hours ? "60" : "1";
-  f.scan_preset.value = n.scan_preset;
-  f.querySelector('option[value="custom"]').hidden = n.scan_preset !== "custom";
-  f.dataset.scanPorts = JSON.stringify(n.scan_ports);
-  f.dataset.discoveryPorts = JSON.stringify(n.discovery_ports);
-  f.offline_info.value = n.offline_info_hours;
-  f.offline_warn.value = n.offline_warn_hours;
-  f.reverse_dns.checked = n.reverse_dns;
-  f.enabled.checked = n.enabled;
-  $("#network-edit-msg").hidden = true;
-  $("#network-dialog").showModal();
+  const custom = f.scan_preset.value === "custom";
+  $("#custom-ports-field").hidden = !custom;
+  f.scan_ports.required = custom;
+  // Only the count is shown; the list sits in a tooltip and opens on click.
+  const ports = networkOptions && networkOptions.presets[f.scan_preset.value];
+  $("#preset-info").hidden = custom || !ports;
+  if (ports) {
+    const text = portSummary(ports);
+    $("#preset-count").textContent = `${ports.length} Ports – Liste anzeigen`;
+    $("#preset-count").title = text;
+    $("#preset-ports").textContent = text;
+  }
 }
 
-async function saveNetworkEdit(ev) {
+let editing = null; // the network being edited, null when creating one
+let networkSnapshot = ""; // form state when the dialog opened
+
+function formState(f) {
+  return JSON.stringify([...new FormData(f)]);
+}
+
+async function openNetworkDialog(n) {
+  try { await loadNetworkOptions(); } catch (e) { message("#network-msg", "Fehler: " + e.message, true); return; }
+  const f = $("#network-edit");
+  const v = n || networkOptions.defaults;
+  editing = n;
+  f.reset();
+  $("#network-crawler-field").hidden = !!n;
+  // Disabled: left out of the form data, so a crawler list refresh while
+  // editing doesn't count as a change.
+  f.crawler_id.disabled = !!n;
+  $("#network-title").textContent = n ? `Netz „${n.name}“ bearbeiten` : "Neues Netz";
+  $("#network-edit-intro").textContent = n
+    ? `Crawler: ${n.crawler_id}. Inventar und Verlauf bleiben erhalten. Änderungen gelten ab dem nächsten geplanten Scan – am Crawler ist nichts zu tun.`
+    : "Nach dem Anlegen startet die erste Host-Erkennung in Kürze, danach der Portscan. Was dabei gefunden wird, gilt als Initialbestand und löst keine Meldungen aus.";
+  $("#network-submit").textContent = n ? "Speichern" : "Netz anlegen";
+  f.name.value = v.name || "";
+  f.targets.value = v.targets.join(", ");
+  f.deny.value = v.deny.join(", ");
+  for (const p of networkPairs) { setPair(f[p[0]], f[p[0] + "_unit"], v[p[1]]); pairMin(f, p); }
+  f.scan_preset.value = v.scan_preset;
+  f.scan_ports.value = v.scan_preset === "custom" ? portSummary(v.scan_ports) : "";
+  f.reverse_dns.checked = v.reverse_dns;
+  f.enabled.checked = v.enabled;
+  showPresetInfo();
+  for (const d of f.querySelectorAll("details")) d.open = false;
+  $("#network-unsaved").hidden = true;
+  $("#network-edit-msg").hidden = true;
+  networkSnapshot = formState(f);
+  $("#network-dialog").showModal();
+  $("#network-dialog").scrollTop = 0;
+}
+
+// closeNetworkDialog asks before throwing away changes.
+function closeNetworkDialog() {
+  if (formState($("#network-edit")) !== networkSnapshot) {
+    $("#network-unsaved").hidden = false;
+    $("#network-keep").focus();
+    return;
+  }
+  $("#network-dialog").close();
+}
+
+function setupNetworkDialog() {
+  const dlg = $("#network-dialog");
+  const f = $("#network-edit");
+  f.addEventListener("submit", saveNetwork);
+  f.scan_preset.addEventListener("change", showPresetInfo);
+  for (const p of networkPairs) f[p[0] + "_unit"].addEventListener("change", () => pairMin(f, p));
+  f.addEventListener("input", () => { $("#network-unsaved").hidden = true; });
+  $("#network-edit-close").addEventListener("click", closeNetworkDialog);
+  $("#network-cancel").addEventListener("click", closeNetworkDialog);
+  $("#network-keep").addEventListener("click", () => { $("#network-unsaved").hidden = true; f.name.focus(); });
+  $("#network-discard").addEventListener("click", () => dlg.close());
+  // Escape and a click next to the panel close it, but never silently
+  // drop what was typed.
+  dlg.addEventListener("cancel", (ev) => { ev.preventDefault(); closeNetworkDialog(); });
+  dlg.addEventListener("click", (ev) => { if (ev.target === dlg) closeNetworkDialog(); });
+  $("#network-new").addEventListener("click", () => openNetworkDialog(null));
+}
+
+async function saveNetwork(ev) {
   ev.preventDefault();
   const f = ev.target;
   const custom = f.scan_preset.value === "custom";
+  const body = {
+    name: f.name.value.trim(),
+    targets: list(f.targets.value),
+    deny: list(f.deny.value),
+    discovery_ports: editing ? editing.discovery_ports : [],
+    scan_preset: custom ? "" : f.scan_preset.value,
+    scan_ports: custom ? list(f.scan_ports.value) : [], // the server reads "8000-8100"
+    reverse_dns: f.reverse_dns.checked,
+    enabled: f.enabled.checked,
+  };
+  for (const [k, key] of networkPairs) body[key] = parseInt(f[k].value, 10) * parseInt(f[k + "_unit"].value, 10);
   try {
-    // PUT replaces all settings, so the form sends every one of them.
-    await api("PUT", `/api/v1/admin/networks/${f.dataset.id}`, {
-      name: f.name.value.trim(),
-      targets: list(f.targets.value),
-      deny: list(f.deny.value),
-      discovery_ports: JSON.parse(f.dataset.discoveryPorts),
-      scan_preset: custom ? "" : f.scan_preset.value,
-      scan_ports: custom ? JSON.parse(f.dataset.scanPorts) : [],
-      discovery_interval_minutes: parseInt(f.discovery.value, 10),
-      portscan_interval_minutes: portscanMinutes(f),
-      offline_info_hours: parseInt(f.offline_info.value, 10),
-      offline_warn_hours: parseInt(f.offline_warn.value, 10),
-      reverse_dns: f.reverse_dns.checked,
-      enabled: f.enabled.checked,
-    });
+    if (editing) {
+      // PUT replaces all settings, so the form sends every one of them.
+      await api("PUT", `/api/v1/admin/networks/${editing.id}`, body);
+      $("#network-msg").hidden = true;
+    } else {
+      body.crawler_id = f.crawler_id.value;
+      const n = await api("POST", "/api/v1/admin/networks", body);
+      message("#network-msg", `Netz „${n.name}“ angelegt. Die erste Host-Erkennung startet in Kürze, danach der Portscan.`);
+    }
     $("#network-dialog").close();
     await refresh();
   } catch (e) {
@@ -567,7 +707,7 @@ async function renderNetworks() {
     const td = cell(tr, "");
     const edit = el("button", "Bearbeiten", "ghost small");
     edit.type = "button";
-    edit.addEventListener("click", () => showNetworkEdit(n));
+    edit.addEventListener("click", () => openNetworkDialog(n));
     td.appendChild(edit);
     for (const [kind, text] of [["discovery", "Erkennung jetzt"], ["ports", "Portscan jetzt"]]) {
       const b = el("button", text, "ghost small");
@@ -823,9 +963,7 @@ async function renderAudit() {
 document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
   setupHostDialog();
-  $("#network-edit").addEventListener("submit", saveNetworkEdit);
-  $("#network-edit-close").addEventListener("click", () => $("#network-dialog").close());
-  $("#network-dialog").addEventListener("click", (ev) => { if (ev.target === ev.currentTarget) ev.currentTarget.close(); });
+  setupNetworkDialog();
   $("#theme-switch").addEventListener("click", () => {
     const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     applyTheme(theme);
@@ -859,28 +997,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#logout").addEventListener("click", async () => {
     try { await api("POST", "/api/v1/admin/logout"); } catch {}
     showLogin();
-  });
-
-  $("#network-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const f = new FormData(ev.target);
-    try {
-      const n = await api("POST", "/api/v1/admin/networks", {
-        crawler_id: f.get("crawler_id"),
-        name: f.get("name"),
-        targets: list(f.get("targets")),
-        deny: list(f.get("deny")),
-        discovery_interval_minutes: parseInt(f.get("discovery"), 10),
-        portscan_interval_minutes: portscanMinutes(ev.target),
-        scan_preset: f.get("scan_preset"),
-        reverse_dns: f.get("reverse_dns") === "on",
-      });
-      message("#network-msg", `Netz „${n.name}“ angelegt. Die erste Host-Erkennung startet in Kürze, danach der Portscan.`);
-      ev.target.reset();
-      await refresh();
-    } catch (e) {
-      message("#network-msg", "Abgelehnt: " + e.message, true);
-    }
   });
 
   $("#job-form").addEventListener("submit", async (ev) => {

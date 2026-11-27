@@ -43,6 +43,32 @@ var presets = map[string][]int{
 	"discovery": {22, 53, 80, 135, 139, 443, 445, 3389, 5000, 8080, 8443, 62078},
 }
 
+// Specs turns a port list back into entries for Resolve.
+func Specs(list []int) []Spec {
+	out := make([]Spec, len(list))
+	for i, p := range list {
+		out[i] = Spec(strconv.Itoa(p))
+	}
+	return out
+}
+
+// named holds every named preset with its ports sorted, built once.
+var named = func() map[string][]int {
+	out := make(map[string][]int, len(presets))
+	for name, list := range presets {
+		out[name] = append([]int(nil), list...)
+		sort.Ints(out[name])
+	}
+	return out
+}()
+
+// Named returns the sorted ports of a named preset (not "all" or
+// "custom"). The slice is shared: callers must not modify it.
+func Named(name string) ([]int, bool) {
+	list, ok := named[name]
+	return list, ok
+}
+
 // Presets returns all valid preset names, sorted.
 func Presets() []string {
 	names := []string{PresetAll, PresetCustom}
