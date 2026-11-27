@@ -13,7 +13,8 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
 
 - Dienste gruppiert: Jeder Dienst gehört zu einer Kategorie (Web, Fernzugriff, Dateifreigabe, Datenbanken, Mail,
   Netzdienste, Medien & Smart Home, Drucker, Sonstiges) – nach Software, Dienstname oder Port.
-- Seite „Dienste“: Filter-Chips mit Anzahl, Software je Kategorie aufklappbar (Klick zeigt die Geräte),
+- Seite „Dienste“: Filter-Chips mit Anzahl; je Kategorie eine Tabelle (Software, Version, Dienst, Gerät, Port, Erkannt).
+  Software, die mehrfach läuft, steht in einer Zeile mit Pfeil und klappt ihre Vorkommen auf.
   Schalter „Nach Kategorie | Nach Gerät“. Host-Panel: Ports nach Kategorie sortiert, mit Etikett.
 - Export für KI-Agenten: Software-Übersicht nach Kategorien gegliedert. API: `category`, `category_label` je Dienst.
 

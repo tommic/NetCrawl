@@ -632,68 +632,74 @@ function table(headers) {
   return [t, tbody];
 }
 
-function deviceLabel(h, port) {
-  const span = el("span", undefined, "device");
-  span.append(el("span", h.ip, "mono"));
-  const name = h.custom_name || h.hostname;
-  if (name) span.append(document.createTextNode(" " + name));
-  if (port !== undefined) span.append(el("span", ":" + port, "muted mono"));
-  return span;
-}
-
-// Category view: per category the software with its versions; a click
-// on a row lists the devices.
+// Category view: per category a table of all services. Software that
+// runs more than once gets one row with an arrow; opened, its
+// occurrences follow in the same columns.
 function renderServicesByCategory(box, rows) {
   const cats = new Map();
   for (const r of rows) {
     if (!cats.has(r.sv.category)) cats.set(r.sv.category, { label: r.sv.category_label, software: new Map() });
     const sw = cats.get(r.sv.category).software;
     const k = softwareKey(r.sv);
-    if (!sw.has(k)) sw.set(k, { sv: r.sv, versions: new Map(), rows: [] });
-    const g = sw.get(k);
-    const v = r.sv.version || "–";
-    g.versions.set(v, (g.versions.get(v) || 0) + 1);
-    g.rows.push(r);
+    if (!sw.has(k)) sw.set(k, { sv: r.sv, rows: [] });
+    sw.get(k).rows.push(r);
   }
+  const versionOrder = (a, b) => (a.sv.version || "").localeCompare(b.sv.version || "", undefined, { numeric: true });
   for (const cat of [...cats.keys()].sort((a, b) => catRank(a) - catRank(b))) {
     const c = cats.get(cat);
     const list = [...c.software.entries()].sort(([, a], [, b]) =>
       !a.sv.product - !b.sv.product || (a.sv.product || a.sv.name).localeCompare(b.sv.product || b.sv.name));
     const ports = list.reduce((n, [, g]) => n + g.rows.length, 0);
     const d = group(c.label, ` · ${list.length} Software, ${ports} ${ports === 1 ? "Dienst" : "Dienste"}`);
-    const [t, tbody] = table(["Software", "Dienst", "Versionen", "Geräte"]);
+    const [t, tbody] = table(["Software", "Version", "Dienst", "Gerät", "Port", "Erkannt"]);
+    t.classList.add("svc-tree");
     for (const [k, g] of list) {
-      const tr = document.createElement("tr");
-      tr.className = "clickable";
-      tr.tabIndex = 0;
+      const items = [...g.rows].sort((a, b) => versionOrder(a, b) || ipCompare(a.h.ip, b.h.ip) || a.port - b.port);
+      const name = g.sv.product || "unbekannte Software";
+      if (items.length === 1) {
+        tbody.appendChild(serviceRow(items[0], name, false));
+        continue;
+      }
       const open = svcOpen.has(k);
+      const tr = document.createElement("tr");
+      tr.className = "clickable svc-parent";
+      tr.tabIndex = 0;
       tr.setAttribute("aria-expanded", String(open));
-      const name = cell(tr, "", g.sv.product ? "strong" : "muted");
-      name.append(el("span", open ? "▾ " : "▸ ", "muted"), document.createTextNode(g.sv.product || "unbekannte Software"));
-      cell(tr, g.sv.name);
-      cell(tr, [...g.versions].map(([v, n]) => (n > 1 ? `${v} (${n}×)` : v)).join(", "));
-      cell(tr, String(new Set(g.rows.map((r) => hostKey(r.h))).size));
+      const sw = cell(tr, "", g.sv.product ? "strong" : "muted");
+      sw.append(el("span", open ? "▾" : "▸", "caret"), document.createTextNode(name));
+      const versions = new Set(items.map((r) => r.sv.version || "–"));
+      cell(tr, versions.size === 1 ? [...versions][0] : `${versions.size} Versionen`, versions.size === 1 ? "mono" : "muted");
+      cell(tr, [...new Set(items.map((r) => r.sv.name))].join(", "));
+      const devices = new Set(items.map((r) => hostKey(r.h))).size;
+      cell(tr, `${devices} ${devices === 1 ? "Gerät" : "Geräte"}`, "muted");
+      cell(tr, [...new Set(items.map((r) => r.port))].sort((a, b) => a - b).join(", "), "mono");
+      const last = items.map((r) => r.sv.seen_at).filter(Boolean).sort().pop();
+      cell(tr, last ? ago(last) : "–");
       const toggle = () => { if (open) svcOpen.delete(k); else svcOpen.add(k); renderServiceTables(); };
       tr.addEventListener("click", toggle);
       tr.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); } });
       tbody.appendChild(tr);
-      if (open) {
-        const dr = document.createElement("tr");
-        dr.className = "svc-devices";
-        const td = document.createElement("td");
-        td.colSpan = 4;
-        for (const r of [...g.rows].sort((a, b) => ipCompare(a.h.ip, b.h.ip) || a.port - b.port)) {
-          const item = deviceLabel(r.h, r.port);
-          if (r.sv.version) item.title = r.sv.version + (r.sv.extra ? " · " + r.sv.extra : "");
-          td.appendChild(item);
-        }
-        dr.appendChild(td);
-        tbody.appendChild(dr);
-      }
+      if (open) for (const r of items) tbody.appendChild(serviceRow(r, "", true));
     }
     d.appendChild(t);
     box.appendChild(d);
   }
+}
+
+// serviceRow is one occurrence: software (empty under its parent row),
+// version, protocol, device, port, last seen.
+function serviceRow(r, name, child) {
+  const tr = document.createElement("tr");
+  if (child) tr.className = "svc-child";
+  const sw = cell(tr, "", r.sv.product ? "" : "muted");
+  sw.append(el("span", "", "caret"), document.createTextNode(name));
+  cell(tr, r.sv.version || "–", "mono").title = r.sv.extra || "";
+  cell(tr, r.sv.name);
+  const dev = cell(tr, "");
+  dev.append(el("span", r.h.ip, "mono"), document.createTextNode(" "), hostName(r.h));
+  cell(tr, String(r.port), "mono");
+  cell(tr, r.sv.seen_at ? ago(r.sv.seen_at) : "–").title = r.sv.method === "nmap" ? "erkannt mit nmap" : "erkannt über Banner/Header";
+  return tr;
 }
 
 // Device view: per device its services, sorted by category.

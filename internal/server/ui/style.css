@@ -226,8 +226,10 @@ details.svc-group > summary::-webkit-details-marker { display: none; }
 details.svc-group > summary::before { content: "▾"; color: var(--muted); width: 1.2em; }
 details.svc-group:not([open]) > summary::before { content: "▸"; }
 .svc-group-title { font-weight: 600; font-size: 15px; }
-tr.svc-devices td { background: var(--field); padding: 10px 12px; }
-.device { display: inline-block; margin: 2px 14px 2px 0; white-space: nowrap; }
+.caret { display: inline-block; width: 1.3em; color: var(--muted); }
+tr.svc-parent td { font-weight: 500; }
+tr.svc-child td { background: var(--field); }
+tr.svc-child td:first-child { border-left: 2px solid var(--line-strong); }
 .pill.cat { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--fg-soft); }
 .unsaved span { flex: 1 1 200px; color: var(--fg); }
 .unsaved button.small { margin: 0; }
