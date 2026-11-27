@@ -323,11 +323,11 @@ func testNetworks(t *testing.T, s store.Store) {
 	n := addNetwork(t, s, "lab-1", "Heimnetz")
 	_, err := s.CreateNetwork(ctx, store.Network{CrawlerID: "lab-1", Name: "Heimnetz", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
-		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, CreatedAt: t0})
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, CreatedAt: t0})
 	wantErr(t, err, store.ErrExists)
 	_, err = s.CreateNetwork(ctx, store.Network{CrawlerID: "nope", Name: "x", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22}, DiscoveryInterval: time.Minute, PortscanInterval: time.Minute,
-		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, CreatedAt: t0})
+		OfflineInfoAfter: time.Minute, OfflineWarnAfter: time.Minute, OfflineCriticalAfter: time.Minute, CreatedAt: t0})
 	wantErr(t, err, store.ErrNotFound)
 
 	got, err := s.Network(ctx, n.ID)

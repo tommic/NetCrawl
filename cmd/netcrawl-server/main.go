@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"netcrawler/internal/eventlog"
+	"netcrawler/internal/ports"
 	"netcrawler/internal/server"
 	"netcrawler/internal/store"
 	"netcrawler/internal/store/pgstore"
@@ -357,10 +358,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		sp, err := parsePorts(*scanPorts)
-		if err != nil {
-			return err
-		}
+		sp := portSpecs(*scanPorts)
 		st, err := open()
 		if err != nil {
 			return err
@@ -427,9 +425,7 @@ func run(args []string) error {
 			}
 		}
 		if set["scan-ports"] {
-			if req.ScanPorts, err = parsePorts(*scanPorts); err != nil {
-				return err
-			}
+			req.ScanPorts = portSpecs(*scanPorts)
 		}
 		if set["scan-preset"] {
 			req.ScanPorts, req.ScanPreset = nil, *scanPreset
@@ -761,6 +757,15 @@ func parsePorts(s string) ([]int, error) {
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// portSpecs reads "22,80,8000-8100"; the server checks the entries.
+func portSpecs(s string) []ports.Spec {
+	var out []ports.Spec
+	for _, p := range splitList(s) {
+		out = append(out, ports.Spec(p))
+	}
+	return out
 }
 
 func joinInts(v []int) string {

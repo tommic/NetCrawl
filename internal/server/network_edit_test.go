@@ -86,13 +86,14 @@ func TestNetworkEditIntervals(t *testing.T) {
 	}
 }
 
-// The UI lists the built-in presets with their ports.
-func TestPortPresets(t *testing.T) {
+// The network form gets the built-in presets and the defaults from the server.
+func TestNetworkOptions(t *testing.T) {
 	f := newNetFixture(t)
 	c := withCookie(f.login())
-	resp := f.do("GET", "/api/v1/admin/port-presets", "", "", c)
+	resp := f.do("GET", "/api/v1/admin/network-options", "", "", c)
+	opt := decode[NetworkOptions](t, resp)
 	got := map[string][]int{}
-	for _, p := range decode[[]PortPreset](t, resp) {
+	for _, p := range opt.Presets {
 		got[p.Name] = p.Ports
 	}
 	if resp.StatusCode != http.StatusOK || len(got["top100"]) != 100 || len(got["tiny"]) != 3 || len(got["discovery"]) == 0 {
@@ -101,8 +102,29 @@ func TestPortPresets(t *testing.T) {
 	if _, ok := got["all"]; ok {
 		t.Error("preset all must not be offered")
 	}
-	if resp := f.do("GET", "/api/v1/admin/port-presets", "", "", nil); resp.StatusCode != http.StatusUnauthorized {
+	d := opt.Defaults
+	if d.ScanPreset != DefaultScanPreset || d.DiscoveryIntervalMinutes != DefaultDiscoveryMinutes ||
+		d.OfflineCriticalMinutes != DefaultOfflineCriticalMinutes || !d.ReverseDNS || d.Targets == nil {
+		t.Errorf("defaults: %+v", d)
+	}
+	if resp := f.do("GET", "/api/v1/admin/network-options", "", "", nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("without login: %d", resp.StatusCode)
+	}
+}
+
+// Custom scan ports accept ranges; the server resolves them.
+func TestNetworkScanPortRanges(t *testing.T) {
+	f := newNetFixture(t)
+	c := withCookie(f.login())
+	resp := f.do("POST", "/api/v1/admin/networks", "application/json",
+		`{"crawler_id":"lan-1","name":"Heimnetz","targets":["10.0.0.0/28"],"scan_ports":[22,"8000-8002","80"]}`, c)
+	if n := decode[NetworkView](t, resp); resp.StatusCode != http.StatusCreated || len(n.ScanPorts) != 5 || n.ScanPorts[0] != 22 || n.ScanPreset != "custom" {
+		t.Fatalf("ranges: %d %+v", resp.StatusCode, n)
+	}
+	resp = f.do("PUT", "/api/v1/admin/networks/1", "application/json",
+		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"scan_ports":["9000-8000"]}`, c)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("reversed range: %d, want 400", resp.StatusCode)
 	}
 }
 

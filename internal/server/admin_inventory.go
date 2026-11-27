@@ -22,7 +22,7 @@ func (s *Server) registerInventoryRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/hosts", s.admin(s.handleListHosts))
 	mux.Handle("POST /api/v1/admin/hosts/important", s.admin(s.handleSetImportant))
 	mux.Handle("POST /api/v1/admin/hosts/name", s.admin(s.handleSetHostName))
-	mux.Handle("GET /api/v1/admin/port-presets", s.admin(s.handlePortPresets))
+	mux.Handle("GET /api/v1/admin/network-options", s.admin(s.handleNetworkOptions))
 	mux.Handle("GET /api/v1/admin/events", s.admin(s.handleListEvents))
 }
 
@@ -99,20 +99,20 @@ type PortPreset struct {
 	Ports []int  `json:"ports"`
 }
 
-// handlePortPresets lists the presets usable for scheduled port scans plus
-// the discovery preset, so the UI can show which ports each one covers.
-func (s *Server) handlePortPresets(w http.ResponseWriter, _ *http.Request) {
-	out := []PortPreset{}
+// NetworkOptions is what the network form needs from the server: the
+// built-in port presets and the defaults of a new network.
+type NetworkOptions struct {
+	Presets  []PortPreset `json:"presets"`
+	Defaults NetworkView  `json:"defaults"`
+}
+
+func (s *Server) handleNetworkOptions(w http.ResponseWriter, _ *http.Request) {
+	named := ports.Named()
+	out := NetworkOptions{Presets: make([]PortPreset, 0, len(named)), Defaults: networkView(DefaultNetwork(), nil)}
 	for _, name := range ports.Presets() {
-		if name == ports.PresetAll || name == ports.PresetCustom {
-			continue
+		if list, ok := named[name]; ok {
+			out.Presets = append(out.Presets, PortPreset{Name: name, Ports: list})
 		}
-		list, err := ports.Resolve(name, nil)
-		if err != nil {
-			s.internalError(w, err)
-			return
-		}
-		out = append(out, PortPreset{Name: name, Ports: list})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

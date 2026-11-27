@@ -34,15 +34,6 @@ const networkColumns = `id, crawler_id, name, targets, deny, discovery_ports, sc
 	portscan_interval_s, offline_info_s, offline_warn_s, offline_critical_s, reverse_dns, enabled, created_at,
 	last_discovery_at, last_portscan_at, discovery_done_at, portscan_done_at, baseline_done`
 
-// critical returns the critical threshold, with the column default for
-// callers that leave it unset.
-func critical(n store.Network) time.Duration {
-	if n.OfflineCriticalAfter <= 0 {
-		return time.Hour
-	}
-	return n.OfflineCriticalAfter
-}
-
 func scanNetwork(row pgx.Row) (store.Network, error) {
 	var n store.Network
 	var dp, sp []int32
@@ -64,7 +55,7 @@ func (s *Store) CreateNetwork(ctx context.Context, n store.Network) (int64, erro
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
 		n.CrawlerID, n.Name, n.Targets, nonNil(n.Deny), n.DiscoveryPorts, n.ScanPorts,
 		secs(n.DiscoveryInterval), secs(n.PortscanInterval), secs(n.OfflineInfoAfter), secs(n.OfflineWarnAfter),
-		n.ReverseDNS, n.Enabled, n.CreatedAt, secs(critical(n))).Scan(&id)
+		n.ReverseDNS, n.Enabled, n.CreatedAt, secs(n.OfflineCriticalAfter)).Scan(&id)
 	switch {
 	case isUniqueViolation(err):
 		return 0, store.ErrExists
@@ -102,7 +93,7 @@ func (s *Store) UpdateNetworkSettings(ctx context.Context, n store.Network) erro
 		offline_warn_s = $10, reverse_dns = $11, enabled = $12, offline_critical_s = $13 WHERE id = $1`,
 		n.ID, n.Name, n.Targets, nonNil(n.Deny), n.DiscoveryPorts, n.ScanPorts,
 		secs(n.DiscoveryInterval), secs(n.PortscanInterval), secs(n.OfflineInfoAfter), secs(n.OfflineWarnAfter),
-		n.ReverseDNS, n.Enabled, secs(critical(n)))
+		n.ReverseDNS, n.Enabled, secs(n.OfflineCriticalAfter))
 	if isUniqueViolation(err) {
 		return store.ErrExists
 	}

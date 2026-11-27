@@ -204,7 +204,7 @@ Vor jedem Netzwerkzugriff prüft der Crawler: gültige Konfiguration inkl. `craw
 | `POST` | `/api/v1/admin/networks/{id}/scan` | `{"kind": "discovery"}` oder `{"kind": "ports"}` sofort |
 | `GET` | `/api/v1/admin/hosts?network_id=` | Inventar |
 | `POST` | `/api/v1/admin/hosts/important` | `{"network_id", "ip", "important"}` |
-| `GET` | `/api/v1/admin/port-presets` | eingebaute Port-Auswahlen mit ihren Ports |
+| `GET` | `/api/v1/admin/network-options` | eingebaute Port-Auswahlen mit ihren Ports und die Standardwerte für neue Netze |
 | `POST` | `/api/v1/admin/hosts/name` | `{"network_id", "ip", "name"}` – eigener Name (max. 64 Zeichen, `""` entfernt ihn) |
 | `GET` | `/api/v1/admin/events?network_id=&ip=&baseline=1&limit=` | Ereignisse, neueste zuerst |
 | `GET`/`PUT` | `/api/v1/admin/notifications` | Discord-Einstellungen (`discord_url`, `min_severity`, `enabled`, `clear_discord_url`); die URL wird nie zurückgegeben |

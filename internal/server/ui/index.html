@@ -118,10 +118,10 @@
           <select id="host-network"><option value="0">Alle Netze</option></select>
         </div>
         <table>
-          <thead><tr><th>Netz</th><th>IP</th><th>Name</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte werden schnell als „Kritisch“ gemeldet, wenn sie fehlen (Standard: nach 60 Min.)">Wichtig&nbsp;ⓘ</th></tr></thead>
+          <thead><tr><th>Netz</th><th>IP</th><th>Name</th><th>Status</th><th>Offene Ports</th><th>Zuerst gesehen</th><th>Zuletzt gesehen</th><th title="Wichtige Geräte werden schnell als „Kritisch“ gemeldet, wenn sie fehlen">Wichtig&nbsp;ⓘ</th></tr></thead>
           <tbody id="hosts"></tbody>
         </table>
-        <p class="hint">Host anklicken für Details und einen eigenen Namen. <span class="custom-name">Kursiv</span> = eigener Name (Maus darüber zeigt den gefundenen Hostnamen).<br><strong>Wichtig</strong> = Fehlt das Gerät, gibt es schnell eine <em>kritische</em> Meldung (Standard: nach 60 Min., pro Netz einstellbar) – gedacht für Router, NAS, Server, Kameras.</p>
+        <p class="hint">Host anklicken für Details und einen eigenen Namen. <span class="custom-name">Kursiv</span> = eigener Name (Maus darüber zeigt den gefundenen Hostnamen).<br><strong>Wichtig</strong> = Fehlt das Gerät, gibt es schnell eine <em>kritische</em> Meldung (Schwelle pro Netz einstellbar) – gedacht für Router, NAS, Server, Kameras.</p>
         <dialog id="host-dialog" class="drawer" aria-labelledby="host-title"><div id="host-detail"></div></dialog>
       </div>
     </div>
@@ -159,16 +159,12 @@
               <legend>Ports beim Portscan</legend>
               <label>Auswahl
                 <select name="scan_preset">
-                  <option value="top100">Top 100 – die 100 häufigsten Ports</option>
-                  <option value="common">Häufige Dienste (17)</option>
-                  <option value="web">Web-Server (7)</option>
-                  <option value="database">Datenbanken (6)</option>
-                  <option value="tiny">Minimal – SSH und Web (3)</option>
+                  <!-- presets are filled in from the server -->
                   <option value="custom">Eigene Ports …</option>
                 </select></label>
               <details class="help-more port-list" id="preset-info"><summary id="preset-count"></summary><p class="mono small" id="preset-ports"></p></details>
               <label id="custom-ports-field">Eigene Ports <input name="scan_ports" spellcheck="false" placeholder="22, 80, 443, 8000-8100">
-                <span class="help">Einzelne Ports und Bereiche, mit Komma getrennt. Höchstens 1024 Ports.</span></label>
+                <span class="help">Einzelne Ports und Bereiche, mit Komma getrennt.</span></label>
               <details class="help-more"><summary>Was ist was?</summary>
                 <p>Die Auswahllisten sind fest im Server eingebaut. <strong>Top 100</strong> entspricht <code>nmap --top-ports 100</code> und deckt die meisten Dienste im Heimnetz ab. Wer gezielt bestimmte Ports braucht, nimmt „Eigene Ports“ – hier oder auf der Kommandozeile mit <code>network update --id N --scan-ports 22,80,8000-8100</code>.</p>
                 <p>Die Host-Erkennung nutzt immer ihre eigene kurze Liste (<span id="discovery-ports" class="tip"></span>).</p>
@@ -205,7 +201,7 @@
                 <button type="button" id="network-keep" class="small">Weiter bearbeiten</button>
               </div>
               <p id="network-edit-msg" hidden></p>
-              <div class="actions-row"><button type="submit" id="network-submit">Speichern</button><button type="button" id="network-cancel" class="ghost">Abbrechen</button></div>
+              <div class="row"><button type="submit" id="network-submit">Speichern</button><button type="button" id="network-cancel" class="ghost">Abbrechen</button></div>
             </div>
           </form>
         </dialog>

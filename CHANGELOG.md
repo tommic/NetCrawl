@@ -15,7 +15,8 @@ Die Versionen bis 0.5.0 wurden nachträglich aus den gemergten Pull Requests zus
   jede mit kurzer Erklärung. Host-Erkennung und Portscan stehen untereinander mit eigener Einheit (Min./Std.),
   Offline-Schwellen wahlweise in Stunden oder Tagen. „Ausnehmen“ erklärt die Schreibweise.
 - Ports beim Portscan: Die Auswahl zeigt, wie viele Ports sie umfasst; die Liste steht im Tooltip bzw. zum Aufklappen.
-  Neu „Eigene Ports …“ mit Einzelports und Bereichen (`22, 80, 8000-8100`). API: `GET /api/v1/admin/port-presets`.
+  Neu „Eigene Ports …“ mit Einzelports und Bereichen (`22, 80, 8000-8100`); `scan_ports` in der API und `--scan-ports`
+  auf der Kommandozeile verstehen jetzt auch Bereiche. API: `GET /api/v1/admin/network-options` (Port-Auswahlen und Standardwerte).
 - Ungespeicherte Änderungen gehen nicht mehr verloren: Klick daneben, Esc oder „Schließen“ fragen nach
   („Verwerfen“ / „Weiter bearbeiten“). Speichern und Abbrechen bleiben unten immer sichtbar.
 - Neue Netze werden im selben Panel angelegt („Netz anlegen“) statt im Formular unten auf der Seite.
