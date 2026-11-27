@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"netcrawler/internal/ports"
 	"netcrawler/internal/store"
 )
 
@@ -21,6 +22,7 @@ func (s *Server) registerInventoryRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/hosts", s.admin(s.handleListHosts))
 	mux.Handle("POST /api/v1/admin/hosts/important", s.admin(s.handleSetImportant))
 	mux.Handle("POST /api/v1/admin/hosts/name", s.admin(s.handleSetHostName))
+	mux.Handle("GET /api/v1/admin/port-presets", s.admin(s.handlePortPresets))
 	mux.Handle("GET /api/v1/admin/events", s.admin(s.handleListEvents))
 }
 
@@ -39,6 +41,7 @@ type NetworkView struct {
 	ScanPreset               string     `json:"scan_preset"`
 	OfflineInfoHours         int        `json:"offline_info_hours"`
 	OfflineWarnHours         int        `json:"offline_warn_hours"`
+	OfflineCriticalMinutes   int        `json:"offline_critical_minutes"`
 	ReverseDNS               bool       `json:"reverse_dns"`
 	Enabled                  bool       `json:"enabled"`
 	CreatedAt                time.Time  `json:"created_at"`
@@ -61,6 +64,7 @@ func networkView(n store.Network, hosts []store.Host) NetworkView {
 		ScanPreset:               scanPreset(n.ScanPorts),
 		OfflineInfoHours:         int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:         int(n.OfflineWarnAfter.Hours()),
+		OfflineCriticalMinutes:   int(n.OfflineCriticalAfter.Minutes()),
 		ReverseDNS:               n.ReverseDNS, Enabled: n.Enabled, CreatedAt: n.CreatedAt,
 		LastDiscoveryAt: n.LastDiscoveryAt, LastPortscanAt: n.LastPortscanAt,
 		DiscoveryDoneAt: n.DiscoveryDoneAt, PortscanDoneAt: n.PortscanDoneAt, BaselineDone: n.BaselineDone,
@@ -87,6 +91,30 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// PortPreset is one built-in port selection, as shown in the network form.
+type PortPreset struct {
+	Name  string `json:"name"`
+	Ports []int  `json:"ports"`
+}
+
+// handlePortPresets lists the presets usable for scheduled port scans plus
+// the discovery preset, so the UI can show which ports each one covers.
+func (s *Server) handlePortPresets(w http.ResponseWriter, _ *http.Request) {
+	out := []PortPreset{}
+	for _, name := range ports.Presets() {
+		if name == ports.PresetAll || name == ports.PresetCustom {
+			continue
+		}
+		list, err := ports.Resolve(name, nil)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		out = append(out, PortPreset{Name: name, Ports: list})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {

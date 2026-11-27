@@ -30,7 +30,7 @@ func newFixture(t *testing.T) *fixture {
 		CrawlerID: "c1", Name: "Heimnetz", Targets: []string{"10.0.0.0/24"},
 		DiscoveryPorts: []int{22}, ScanPorts: []int{22, 80},
 		DiscoveryInterval: 30 * time.Minute, PortscanInterval: 24 * time.Hour,
-		OfflineInfoAfter: 24 * time.Hour, OfflineWarnAfter: 7 * 24 * time.Hour, Enabled: true,
+		OfflineInfoAfter: 24 * time.Hour, OfflineWarnAfter: 7 * 24 * time.Hour, OfflineCriticalAfter: time.Hour, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -185,13 +185,16 @@ func TestOfflineAndBack(t *testing.T) {
 	}
 	present := map[string]string{"10.0.0.1": ":"}
 
+	// Important hosts have their own short threshold (here 1 h).
+	expect(t, f.apply(disc, t0.Add(30*time.Minute), present), "")
+	expect(t, f.apply(disc, t0.Add(time.Hour), present), "host.offline/critical@10.0.0.3")
 	expect(t, f.apply(disc, t0.Add(23*time.Hour), present), "")
-	expect(t, f.apply(disc, t0.Add(24*time.Hour), present), "host.offline/info@10.0.0.2 host.offline/info@10.0.0.3")
+	expect(t, f.apply(disc, t0.Add(24*time.Hour), present), "host.offline/info@10.0.0.2")
 	// No repeated events at the same level.
 	expect(t, f.apply(disc, t0.Add(48*time.Hour), present), "")
-	// After 7 days: warning, critical for important hosts.
+	// After 7 days: warning for normal hosts; important ones are critical already.
 	ev := f.apply(disc, t0.Add(7*24*time.Hour), present)
-	expect(t, ev, "host.offline/warning@10.0.0.2 host.offline/critical@10.0.0.3")
+	expect(t, ev, "host.offline/warning@10.0.0.2")
 	if !strings.Contains(ev[0].Message, "7 Tagen") {
 		t.Errorf("message %q", ev[0].Message)
 	}

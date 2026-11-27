@@ -183,13 +183,39 @@ dialog.drawer::backdrop { background: rgba(3, 7, 18, 0.55); }
 @media (prefers-reduced-motion: reduce) { dialog.drawer[open] { animation: none; } }
 #host-detail, .drawer-body { padding: 20px 22px 28px; display: grid; gap: 16px; }
 .drawer-body .row label { flex: 1 1 160px; }
-.pair { display: flex; gap: 6px; }
+.pair { display: flex; gap: 6px; align-items: center; }
 .pair input { width: 90px; }
+.pair .pre { color: var(--muted); font-size: 13px; }
+/* Network dialog: grouped settings, each with a short explanation. */
+.drawer-body fieldset { margin: 0; padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 14px; min-width: 0; }
+.drawer-body legend { padding: 0 6px; font-weight: 600; font-size: 14px; color: var(--fg); }
+.drawer-body label:not(.inline) > input, .drawer-body label > select { width: 100%; }
+.help { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.45; margin: 0; }
+.help code, .help-more code { font-size: 12px; color: var(--fg-soft); }
+.setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.setting + .setting { border-top: 1px solid var(--line); padding-top: 14px; }
+.setting-text { display: grid; gap: 2px; flex: 1 1 240px; min-width: 0; }
+.setting-text strong { font-weight: 600; }
+label.inline { align-items: flex-start; }
+label.inline input[type="checkbox"] { margin-top: 3px; flex: none; }
+label.inline > span { display: grid; gap: 2px; }
+.help-more { font-size: 13px; color: var(--muted); }
+.help-more summary { color: var(--link); }
+.help-more p { margin: 8px 0 0; }
+.port-list { margin-top: -6px; }
+.tip { text-decoration: underline dotted; cursor: help; color: var(--fg-soft); }
+.drawer-body > .detail-head { position: sticky; top: 0; z-index: 1; background: var(--card); margin: -20px -22px 0; padding: 20px 22px 12px; border-bottom: 1px solid var(--line); }
+.drawer-actions { position: sticky; bottom: 0; display: grid; gap: 10px; margin: 0 -22px -28px; padding: 14px 22px 18px; background: var(--card); border-top: 1px solid var(--line); }
+.unsaved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; border: 1px solid var(--k-amber-line); background: var(--k-amber); padding: 10px 12px; border-radius: 8px; }
+.actions-row { display: flex; gap: 10px; }
+.unsaved span { flex: 1 1 200px; color: var(--fg); }
+.unsaved button.small { margin: 0; }
 #host-detail .detail-cols { grid-template-columns: minmax(0, 1fr); }
 tbody tr[tabindex]:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
 #host-detail h3 { margin: 0; }
 .detail-head h3 { font-size: 19px; font-weight: 700; }
-.detail-head { margin-bottom: 0; }
+.detail-head { margin-bottom: 0; flex-wrap: nowrap; align-items: flex-start; }
+.detail-head button { flex: none; }
 .detail-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; align-items: start; }
 .detail-col { display: grid; gap: 12px; min-width: 0; }
 .custom-name { font-style: italic; }

@@ -402,7 +402,6 @@ async function showHost(h) {
   fact("Zuerst gesehen", fmt(h.first_seen));
   fact("Zuletzt gesehen", fmt(h.last_seen));
   fact("Letzter Portscan", h.ports_scanned_at ? fmt(h.ports_scanned_at) : "noch keiner");
-  fact("Wichtig", h.important ? "ja" : "nein");
   const left = el("div", undefined, "detail-col");
   const right = el("div", undefined, "detail-col");
   const cols = el("div", undefined, "detail-cols");
@@ -444,6 +443,30 @@ async function showHost(h) {
   }
   form.addEventListener("submit", (ev) => { ev.preventDefault(); setName(input.value); });
   left.append(form, msg);
+
+  // Important flag: decides how loud a missing device is reported.
+  const net = networks.find((n) => n.id === h.network_id);
+  const critAfter = net ? every(net.offline_critical_minutes) : "der Schwelle des Netzes";
+  const imp = el("label", undefined, "inline important-toggle");
+  const impBox = document.createElement("input");
+  impBox.type = "checkbox";
+  impBox.checked = h.important;
+  const impText = el("span");
+  impText.append(el("strong", "Wichtiges Gerät"),
+    el("span", `Fehlt das Gerät länger als ${critAfter}, meldet NetCrawl das als „Kritisch“ (einstellbar beim Netz). Sinnvoll für Router, NAS, Server oder Kameras.`, "help"));
+  imp.append(impBox, impText);
+  impBox.addEventListener("change", async () => {
+    try {
+      await api("POST", "/api/v1/admin/hosts/important", { network_id: h.network_id, ip: h.ip, important: impBox.checked });
+      await renderHosts();
+    } catch (e) {
+      impBox.checked = !impBox.checked;
+      msg.className = "error";
+      msg.textContent = "Fehler: " + e.message;
+      msg.hidden = false;
+    }
+  });
+  left.appendChild(imp);
 
   // Open ports.
   right.appendChild(el("h3", "Offene Ports"));
@@ -495,55 +518,189 @@ function every(min) {
   return min % 60 === 0 ? `${min / 60} Std.` : `${min} Min.`;
 }
 
-// portscanMinutes reads a "number + unit" pair from a form.
-function portscanMinutes(f) {
-  return parseInt(f.portscan.value, 10) * parseInt(f.portscan_unit.value, 10);
+// ---- network dialog (create and edit) ----
+
+let portPresets = null; // preset name -> ports, from the server
+let networkSnapshot = ""; // form state when the dialog opened
+
+async function loadPortPresets() {
+  if (portPresets) return;
+  try {
+    const list = await api("GET", "/api/v1/admin/port-presets");
+    portPresets = Object.fromEntries(list.map((p) => [p.name, p.ports]));
+  } catch { /* the dialog works without the port lists */ }
 }
 
-function showNetworkEdit(n) {
+// portSummary writes ports compactly: "22, 80, 8000-8100".
+function portSummary(list) {
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    out.push(j > i + 1 ? `${list[i]}-${list[j]}` : j === i + 1 ? `${list[i]}, ${list[j]}` : String(list[i]));
+    i = j;
+  }
+  return out.join(", ");
+}
+
+// parsePorts reads "22, 80, 8000-8100" into a sorted list of ports.
+function parsePorts(text) {
+  const set = new Set();
+  for (const part of list(text)) {
+    const m = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(part);
+    const lo = m && parseInt(m[1], 10);
+    const hi = m && (m[2] ? parseInt(m[2], 10) : lo);
+    if (!m || lo < 1 || hi > 65535 || lo > hi) throw new Error(`„${part}“ ist kein gültiger Port oder Bereich.`);
+    if (hi - lo >= 1024) throw new Error(`Bereich „${part}“ ist zu groß (höchstens 1024 Ports).`);
+    for (let port = lo; port <= hi; port++) set.add(port);
+  }
+  return [...set].sort((x, y) => x - y);
+}
+
+// setPair fills a "number + unit" pair, using the larger unit when the
+// value fits it evenly (1440 minutes -> 24 Std.).
+function setPair(input, unit, value) {
+  const big = parseInt(unit.options[1].value, 10);
+  const useBig = value % big === 0;
+  input.value = useBig ? value / big : value;
+  unit.value = useBig ? String(big) : unit.options[0].value;
+}
+
+function pairValue(input, unit) {
+  return parseInt(input.value, 10) * parseInt(unit.value, 10);
+}
+
+function showPresetInfo() {
   const f = $("#network-edit");
-  f.dataset.id = String(n.id);
-  $("#network-title").textContent = `Netz „${n.name}“ bearbeiten`;
-  $("#network-edit-crawler").textContent = n.crawler_id;
-  f.name.value = n.name;
-  f.targets.value = n.targets.join(", ");
-  f.deny.value = n.deny.join(", ");
-  f.discovery.value = n.discovery_interval_minutes;
-  const hours = n.portscan_interval_minutes % 60 === 0;
-  f.portscan.value = hours ? n.portscan_interval_minutes / 60 : n.portscan_interval_minutes;
-  f.portscan_unit.value = hours ? "60" : "1";
-  f.scan_preset.value = n.scan_preset;
-  f.querySelector('option[value="custom"]').hidden = n.scan_preset !== "custom";
-  f.dataset.scanPorts = JSON.stringify(n.scan_ports);
-  f.dataset.discoveryPorts = JSON.stringify(n.discovery_ports);
-  f.offline_info.value = n.offline_info_hours;
-  f.offline_warn.value = n.offline_warn_hours;
-  f.reverse_dns.checked = n.reverse_dns;
-  f.enabled.checked = n.enabled;
-  $("#network-edit-msg").hidden = true;
-  $("#network-dialog").showModal();
+  const custom = f.scan_preset.value === "custom";
+  $("#custom-ports-field").hidden = !custom;
+  f.scan_ports.required = custom;
+  const ports = portPresets && portPresets[f.scan_preset.value];
+  // Only the count is shown; the list sits in a tooltip and opens on click.
+  const info = $("#preset-info");
+  info.hidden = custom || !ports;
+  info.open = false;
+  if (ports) {
+    $("#preset-count").textContent = `${ports.length} Ports – Liste anzeigen`;
+    $("#preset-count").title = portSummary(ports);
+    $("#preset-ports").textContent = portSummary(ports);
+  }
+  const disc = portPresets && portPresets.discovery;
+  $("#discovery-ports").textContent = disc ? `${disc.length} Ports` : "–";
+  $("#discovery-ports").title = disc ? portSummary(disc) : "";
 }
 
-async function saveNetworkEdit(ev) {
+function formState(f) {
+  return JSON.stringify([...new FormData(f)]);
+}
+
+const networkDefaults = {
+  name: "", targets: [], deny: [], discovery_interval_minutes: 30, portscan_interval_minutes: 24 * 60,
+  scan_preset: "top100", scan_ports: [], discovery_ports: [], offline_info_hours: 24, offline_warn_hours: 7 * 24, offline_critical_minutes: 60,
+  reverse_dns: true, enabled: true,
+};
+
+// openNetworkDialog edits network n, or creates a new one without n.
+async function openNetworkDialog(n) {
+  await loadPortPresets();
+  const f = $("#network-edit");
+  const v = n || networkDefaults;
+  f.reset();
+  f.dataset.id = n ? String(n.id) : "";
+  f.dataset.discoveryPorts = JSON.stringify(v.discovery_ports);
+  $("#network-crawler-field").hidden = !!n;
+  f.crawler_id.required = !n;
+  $("#network-title").textContent = n ? `Netz „${n.name}“ bearbeiten` : "Neues Netz";
+  $("#network-edit-intro").textContent = n
+    ? `Crawler: ${n.crawler_id}. Inventar und Verlauf bleiben erhalten. Änderungen gelten ab dem nächsten geplanten Scan – am Crawler ist nichts zu tun.`
+    : "Nach dem Anlegen startet die erste Host-Erkennung in Kürze, danach der Portscan. Was dabei gefunden wird, gilt als Initialbestand und löst keine Meldungen aus.";
+  $("#network-submit").textContent = n ? "Speichern" : "Netz anlegen";
+  f.name.value = v.name;
+  f.targets.value = v.targets.join(", ");
+  f.deny.value = v.deny.join(", ");
+  setPair(f.discovery, f.discovery_unit, v.discovery_interval_minutes);
+  setPair(f.portscan, f.portscan_unit, v.portscan_interval_minutes);
+  f.scan_preset.value = v.scan_preset;
+  f.scan_ports.value = v.scan_preset === "custom" ? portSummary(v.scan_ports) : "";
+  setPair(f.offline_info, f.offline_info_unit, v.offline_info_hours);
+  setPair(f.offline_warn, f.offline_warn_unit, v.offline_warn_hours);
+  setPair(f.offline_critical, f.offline_critical_unit, v.offline_critical_minutes);
+  f.reverse_dns.checked = v.reverse_dns;
+  f.enabled.checked = v.enabled;
+  showPresetInfo();
+  $("#network-unsaved").hidden = true;
+  $("#network-edit-msg").hidden = true;
+  networkSnapshot = formState(f);
+  for (const d of f.querySelectorAll("details")) d.open = false;
+  $("#network-dialog").showModal();
+  $("#network-dialog").scrollTop = 0;
+}
+
+// closeNetworkDialog asks before throwing away changes.
+function closeNetworkDialog() {
+  if (formState($("#network-edit")) !== networkSnapshot) {
+    $("#network-unsaved").hidden = false;
+    $("#network-keep").focus();
+    return;
+  }
+  $("#network-dialog").close();
+}
+
+function setupNetworkDialog() {
+  const dlg = $("#network-dialog");
+  const f = $("#network-edit");
+  f.addEventListener("submit", saveNetwork);
+  f.scan_preset.addEventListener("change", showPresetInfo);
+  f.addEventListener("input", () => { $("#network-unsaved").hidden = true; });
+  $("#network-edit-close").addEventListener("click", closeNetworkDialog);
+  $("#network-cancel").addEventListener("click", closeNetworkDialog);
+  $("#network-keep").addEventListener("click", () => { $("#network-unsaved").hidden = true; f.name.focus(); });
+  $("#network-discard").addEventListener("click", () => dlg.close());
+  // Escape and a click next to the panel close it, but never silently
+  // drop what was typed.
+  dlg.addEventListener("cancel", (ev) => { ev.preventDefault(); closeNetworkDialog(); });
+  dlg.addEventListener("click", (ev) => { if (ev.target === dlg) closeNetworkDialog(); });
+  $("#network-new").addEventListener("click", () => openNetworkDialog(null));
+}
+
+async function saveNetwork(ev) {
   ev.preventDefault();
   const f = ev.target;
   const custom = f.scan_preset.value === "custom";
+  let scanPorts = [];
   try {
-    // PUT replaces all settings, so the form sends every one of them.
-    await api("PUT", `/api/v1/admin/networks/${f.dataset.id}`, {
-      name: f.name.value.trim(),
-      targets: list(f.targets.value),
-      deny: list(f.deny.value),
-      discovery_ports: JSON.parse(f.dataset.discoveryPorts),
-      scan_preset: custom ? "" : f.scan_preset.value,
-      scan_ports: custom ? JSON.parse(f.dataset.scanPorts) : [],
-      discovery_interval_minutes: parseInt(f.discovery.value, 10),
-      portscan_interval_minutes: portscanMinutes(f),
-      offline_info_hours: parseInt(f.offline_info.value, 10),
-      offline_warn_hours: parseInt(f.offline_warn.value, 10),
-      reverse_dns: f.reverse_dns.checked,
-      enabled: f.enabled.checked,
-    });
+    if (custom) scanPorts = parsePorts(f.scan_ports.value);
+    if (custom && !scanPorts.length) throw new Error("Bitte mindestens einen Port angeben.");
+    if (custom && scanPorts.length > 1024) throw new Error("Höchstens 1024 Ports.");
+  } catch (e) {
+    message("#network-edit-msg", e.message, true);
+    return;
+  }
+  const body = {
+    name: f.name.value.trim(),
+    targets: list(f.targets.value),
+    deny: list(f.deny.value),
+    discovery_ports: JSON.parse(f.dataset.discoveryPorts),
+    scan_preset: custom ? "" : f.scan_preset.value,
+    scan_ports: scanPorts,
+    discovery_interval_minutes: pairValue(f.discovery, f.discovery_unit),
+    portscan_interval_minutes: pairValue(f.portscan, f.portscan_unit),
+    offline_info_hours: pairValue(f.offline_info, f.offline_info_unit),
+    offline_warn_hours: pairValue(f.offline_warn, f.offline_warn_unit),
+    offline_critical_minutes: pairValue(f.offline_critical, f.offline_critical_unit),
+    reverse_dns: f.reverse_dns.checked,
+    enabled: f.enabled.checked,
+  };
+  try {
+    if (f.dataset.id) {
+      // PUT replaces all settings, so the form sends every one of them.
+      await api("PUT", `/api/v1/admin/networks/${f.dataset.id}`, body);
+      $("#network-msg").hidden = true;
+    } else {
+      body.crawler_id = f.crawler_id.value;
+      const n = await api("POST", "/api/v1/admin/networks", body);
+      message("#network-msg", `Netz „${n.name}“ angelegt. Die erste Host-Erkennung startet in Kürze, danach der Portscan.`);
+    }
     $("#network-dialog").close();
     await refresh();
   } catch (e) {
@@ -567,7 +724,7 @@ async function renderNetworks() {
     const td = cell(tr, "");
     const edit = el("button", "Bearbeiten", "ghost small");
     edit.type = "button";
-    edit.addEventListener("click", () => showNetworkEdit(n));
+    edit.addEventListener("click", () => openNetworkDialog(n));
     td.appendChild(edit);
     for (const [kind, text] of [["discovery", "Erkennung jetzt"], ["ports", "Portscan jetzt"]]) {
       const b = el("button", text, "ghost small");
@@ -823,9 +980,7 @@ async function renderAudit() {
 document.addEventListener("DOMContentLoaded", async () => {
   for (const b of $$(".tab")) b.addEventListener("click", () => selectTab(b.dataset.tab));
   setupHostDialog();
-  $("#network-edit").addEventListener("submit", saveNetworkEdit);
-  $("#network-edit-close").addEventListener("click", () => $("#network-dialog").close());
-  $("#network-dialog").addEventListener("click", (ev) => { if (ev.target === ev.currentTarget) ev.currentTarget.close(); });
+  setupNetworkDialog();
   $("#theme-switch").addEventListener("click", () => {
     const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     applyTheme(theme);
@@ -859,28 +1014,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#logout").addEventListener("click", async () => {
     try { await api("POST", "/api/v1/admin/logout"); } catch {}
     showLogin();
-  });
-
-  $("#network-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const f = new FormData(ev.target);
-    try {
-      const n = await api("POST", "/api/v1/admin/networks", {
-        crawler_id: f.get("crawler_id"),
-        name: f.get("name"),
-        targets: list(f.get("targets")),
-        deny: list(f.get("deny")),
-        discovery_interval_minutes: parseInt(f.get("discovery"), 10),
-        portscan_interval_minutes: portscanMinutes(ev.target),
-        scan_preset: f.get("scan_preset"),
-        reverse_dns: f.get("reverse_dns") === "on",
-      });
-      message("#network-msg", `Netz „${n.name}“ angelegt. Die erste Host-Erkennung startet in Kürze, danach der Portscan.`);
-      ev.target.reset();
-      await refresh();
-    } catch (e) {
-      message("#network-msg", "Abgelehnt: " + e.message, true);
-    }
   });
 
   $("#job-form").addEventListener("submit", async (ev) => {

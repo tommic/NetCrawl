@@ -85,3 +85,47 @@ func TestNetworkEditIntervals(t *testing.T) {
 		t.Errorf("port scan jobs %d → %d after 61 min with a 30 min interval", first, count())
 	}
 }
+
+// The UI lists the built-in presets with their ports.
+func TestPortPresets(t *testing.T) {
+	f := newNetFixture(t)
+	c := withCookie(f.login())
+	resp := f.do("GET", "/api/v1/admin/port-presets", "", "", c)
+	got := map[string][]int{}
+	for _, p := range decode[[]PortPreset](t, resp) {
+		got[p.Name] = p.Ports
+	}
+	if resp.StatusCode != http.StatusOK || len(got["top100"]) != 100 || len(got["tiny"]) != 3 || len(got["discovery"]) == 0 {
+		t.Fatalf("presets: %d %v", resp.StatusCode, got)
+	}
+	if _, ok := got["all"]; ok {
+		t.Error("preset all must not be offered")
+	}
+	if resp := f.do("GET", "/api/v1/admin/port-presets", "", "", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without login: %d", resp.StatusCode)
+	}
+}
+
+// Important hosts: own threshold in minutes, default 60, at least 5.
+func TestNetworkCriticalThreshold(t *testing.T) {
+	f := newNetFixture(t)
+	c := withCookie(f.login())
+	resp := f.do("POST", "/api/v1/admin/networks", "application/json",
+		`{"crawler_id":"lan-1","name":"Heimnetz","targets":["10.0.0.0/28"]}`, c)
+	if n := decode[NetworkView](t, resp); resp.StatusCode != http.StatusCreated || n.OfflineCriticalMinutes != 60 {
+		t.Fatalf("default: %d %+v", resp.StatusCode, n)
+	}
+	resp = f.do("PUT", "/api/v1/admin/networks/1", "application/json",
+		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"offline_critical_minutes":15}`, c)
+	if n := decode[NetworkView](t, resp); resp.StatusCode != http.StatusOK || n.OfflineCriticalMinutes != 15 {
+		t.Fatalf("15 minutes: %d %+v", resp.StatusCode, n)
+	}
+	if cur, _ := f.st.Network(context.Background(), 1); RequestFromNetwork(cur).OfflineCriticalMinutes != 15 {
+		t.Errorf("RequestFromNetwork lost the threshold")
+	}
+	resp = f.do("PUT", "/api/v1/admin/networks/1", "application/json",
+		`{"name":"Heimnetz","targets":["10.0.0.0/28"],"offline_critical_minutes":2}`, c)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("2 minutes: %d, want 400", resp.StatusCode)
+	}
+}

@@ -279,11 +279,10 @@ func (u *updater) sweep() {
 		missing := ref.Sub(h.LastSeen)
 		var level string
 		switch {
+		case h.Important && u.n.OfflineCriticalAfter > 0 && missing >= u.n.OfflineCriticalAfter:
+			level = store.SeverityCritical
 		case missing >= u.n.OfflineWarnAfter:
 			level = store.SeverityWarning
-			if h.Important {
-				level = store.SeverityCritical
-			}
 		case missing >= u.n.OfflineInfoAfter:
 			level = store.SeverityInfo
 		default:

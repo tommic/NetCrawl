@@ -22,8 +22,11 @@ const (
 	MinPortscanMinutes      = 15
 	DefaultOfflineInfoHours = 24
 	DefaultOfflineWarnHours = 7 * 24
-	DefaultDiscoveryPreset  = "discovery"
-	DefaultScanPreset       = "top100"
+	// Important hosts: critical event after an hour missing.
+	DefaultOfflineCriticalMinutes = 60
+	MinOfflineCriticalMinutes     = 5
+	DefaultDiscoveryPreset        = "discovery"
+	DefaultScanPreset             = "top100"
 )
 
 // NetworkRequest describes a network to scan. Zero values get defaults.
@@ -40,12 +43,14 @@ type NetworkRequest struct {
 	DiscoveryIntervalMinute int    `json:"discovery_interval_minutes"`
 	// PortscanIntervalMinutes wins over PortscanIntervalHours (kept for
 	// older clients).
-	PortscanIntervalMinutes int   `json:"portscan_interval_minutes"`
-	PortscanIntervalHours   int   `json:"portscan_interval_hours"`
-	OfflineInfoHours        int   `json:"offline_info_hours"`
-	OfflineWarnHours        int   `json:"offline_warn_hours"`
-	ReverseDNS              *bool `json:"reverse_dns"`
-	Enabled                 *bool `json:"enabled"`
+	PortscanIntervalMinutes int `json:"portscan_interval_minutes"`
+	PortscanIntervalHours   int `json:"portscan_interval_hours"`
+	OfflineInfoHours        int `json:"offline_info_hours"`
+	OfflineWarnHours        int `json:"offline_warn_hours"`
+	// OfflineCriticalMinutes applies to hosts marked important (default 60).
+	OfflineCriticalMinutes int   `json:"offline_critical_minutes"`
+	ReverseDNS             *bool `json:"reverse_dns"`
+	Enabled                *bool `json:"enabled"`
 }
 
 // buildNetwork validates a request against the crawler's release and
@@ -104,12 +109,13 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 	n := store.Network{
 		CrawlerID: c.ID, Name: req.Name, Targets: req.Targets, Deny: req.Deny,
 		DiscoveryPorts: req.DiscoveryPorts, ScanPorts: req.ScanPorts,
-		DiscoveryInterval: time.Duration(def(req.DiscoveryIntervalMinute, DefaultDiscoveryMinutes)) * time.Minute,
-		PortscanInterval:  time.Duration(def(req.PortscanIntervalHours, DefaultPortscanHours)) * time.Hour,
-		OfflineInfoAfter:  time.Duration(def(req.OfflineInfoHours, DefaultOfflineInfoHours)) * time.Hour,
-		OfflineWarnAfter:  time.Duration(def(req.OfflineWarnHours, DefaultOfflineWarnHours)) * time.Hour,
-		ReverseDNS:        req.ReverseDNS == nil || *req.ReverseDNS,
-		Enabled:           req.Enabled == nil || *req.Enabled,
+		DiscoveryInterval:    time.Duration(def(req.DiscoveryIntervalMinute, DefaultDiscoveryMinutes)) * time.Minute,
+		PortscanInterval:     time.Duration(def(req.PortscanIntervalHours, DefaultPortscanHours)) * time.Hour,
+		OfflineInfoAfter:     time.Duration(def(req.OfflineInfoHours, DefaultOfflineInfoHours)) * time.Hour,
+		OfflineWarnAfter:     time.Duration(def(req.OfflineWarnHours, DefaultOfflineWarnHours)) * time.Hour,
+		OfflineCriticalAfter: time.Duration(def(req.OfflineCriticalMinutes, DefaultOfflineCriticalMinutes)) * time.Minute,
+		ReverseDNS:           req.ReverseDNS == nil || *req.ReverseDNS,
+		Enabled:              req.Enabled == nil || *req.Enabled,
 	}
 	if req.PortscanIntervalMinutes != 0 {
 		n.PortscanInterval = time.Duration(req.PortscanIntervalMinutes) * time.Minute
@@ -121,6 +127,8 @@ func buildNetwork(ctx context.Context, st store.Store, req NetworkRequest) (stor
 		return store.Network{}, invalid("the port scan interval must be at least %d minutes", MinPortscanMinutes)
 	case n.OfflineInfoAfter < time.Hour || n.OfflineWarnAfter < n.OfflineInfoAfter:
 		return store.Network{}, invalid("offline_info_hours must be at least 1 and offline_warn_hours at least offline_info_hours")
+	case n.OfflineCriticalAfter < MinOfflineCriticalMinutes*time.Minute:
+		return store.Network{}, invalid("offline_critical_minutes must be at least %d", MinOfflineCriticalMinutes)
 	}
 	return n, nil
 }
@@ -158,6 +166,7 @@ func RequestFromNetwork(n store.Network) NetworkRequest {
 		PortscanIntervalMinutes: int(n.PortscanInterval.Minutes()),
 		OfflineInfoHours:        int(n.OfflineInfoAfter.Hours()),
 		OfflineWarnHours:        int(n.OfflineWarnAfter.Hours()),
+		OfflineCriticalMinutes:  int(n.OfflineCriticalAfter.Minutes()),
 		ReverseDNS:              &rdns, Enabled: &enabled,
 	}
 }

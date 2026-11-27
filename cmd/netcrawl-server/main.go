@@ -57,10 +57,10 @@ Usage:
   netcrawl-server job show JOB_ID
   netcrawl-server network add --crawler ID --name NAME --target CIDR[,..] [--deny IP,..] [--discovery-ports P,..]
                               [--scan-ports P,.. | --scan-preset top100] [--discovery-interval 30m] [--portscan-interval 24h]
-                              [--offline-info 24h] [--offline-warn 168h] [--no-reverse-dns]
+                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--no-reverse-dns]
   netcrawl-server network update --id N [--name NAME] [--target ..] [--deny ..] [--discovery-ports ..]
                               [--scan-ports P,.. | --scan-preset NAME] [--discovery-interval 30m] [--portscan-interval 30m]
-                              [--offline-info 24h] [--offline-warn 168h] [--reverse-dns=false] [--enabled=false]
+                              [--offline-info 24h] [--offline-warn 168h] [--offline-critical 1h] [--reverse-dns=false] [--enabled=false]
                               (changes only the given settings; --deny "" removes all exclusions)
   netcrawl-server network list
   netcrawl-server network scan --id N [--kind discovery|ports]
@@ -348,6 +348,7 @@ func run(args []string) error {
 		scanEvery := fs.Duration("portscan-interval", server.DefaultPortscanHours*time.Hour, "port scan interval")
 		offInfo := fs.Duration("offline-info", server.DefaultOfflineInfoHours*time.Hour, "info event when a host is gone this long")
 		offWarn := fs.Duration("offline-warn", server.DefaultOfflineWarnHours*time.Hour, "warning event when a host is gone this long")
+		offCrit := fs.Duration("offline-critical", server.DefaultOfflineCriticalMinutes*time.Minute, "critical event when an important host is gone this long")
 		noDNS := fs.Bool("no-reverse-dns", false, "do not ask crawlers for PTR lookups")
 		if err := fs.Parse(rest); err != nil {
 			return err
@@ -370,7 +371,8 @@ func run(args []string) error {
 			CrawlerID: *crawler, Name: *name, Targets: splitList(*target), Deny: splitList(*deny),
 			DiscoveryPorts: dp, ScanPorts: sp, ScanPreset: *scanPreset,
 			DiscoveryIntervalMinute: int(discEvery.Minutes()), PortscanIntervalMinutes: int(scanEvery.Minutes()),
-			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()), ReverseDNS: &rdns,
+			OfflineInfoHours: int(offInfo.Hours()), OfflineWarnHours: int(offWarn.Hours()),
+			OfflineCriticalMinutes: int(offCrit.Minutes()), ReverseDNS: &rdns,
 		}, time.Now())
 		if err != nil {
 			return err
@@ -392,6 +394,7 @@ func run(args []string) error {
 		scanEvery := fs.Duration("portscan-interval", 0, "port scan interval (at least 15m)")
 		offInfo := fs.Duration("offline-info", 0, "info event when a host is gone this long")
 		offWarn := fs.Duration("offline-warn", 0, "warning event when a host is gone this long")
+		offCrit := fs.Duration("offline-critical", 0, "critical event when an important host is gone this long")
 		rdns := fs.Bool("reverse-dns", true, "ask crawlers for PTR lookups")
 		enabled := fs.Bool("enabled", true, "scan this network")
 		if err := fs.Parse(rest); err != nil {
@@ -442,6 +445,9 @@ func run(args []string) error {
 		}
 		if set["offline-warn"] {
 			req.OfflineWarnHours = int(offWarn.Hours())
+		}
+		if set["offline-critical"] {
+			req.OfflineCriticalMinutes = int(offCrit.Minutes())
 		}
 		if set["reverse-dns"] {
 			req.ReverseDNS = rdns
